@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0ematching.proto\x12\x08matching\"L\n\x0cMatchRequest\x12\x0f\n\x07trip_id\x18\x01 \x01(\x03\x12\x16\n\x0eroute_polyline\x18\x02 \x01(\t\x12\x13\n\x0btotal_seats\x18\x03 \x01(\x05\"0\n\rMatchResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t2\\\n\x0fMatchingService\x12I\n\x16GetPotentialPassengers\x12\x16.matching.MatchRequest\x1a\x17.matching.MatchResponseB\x16\n\x12\x63om.duan.hday.grpcP\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0ematching.proto\x12\x08matching\"&\n\nCoordinate\x12\x0b\n\x03lat\x18\x01 \x01(\x01\x12\x0b\n\x03lng\x18\x02 \x01(\x01\"\xc2\x01\n\x0cMatchRequest\x12\x0f\n\x07trip_id\x18\x01 \x01(\x03\x12\x16\n\x0eroute_polyline\x18\x02 \x01(\t\x12\x17\n\x0f\x61vailable_seats\x18\x03 \x01(\x05\x12,\n\x0estart_location\x18\x04 \x01(\x0b\x32\x14.matching.Coordinate\x12*\n\x0c\x65nd_location\x18\x05 \x01(\x0b\x32\x14.matching.Coordinate\x12\x16\n\x0e\x64\x65parture_time\x18\x06 \x01(\t\"d\n\x0ePassengerMatch\x12\x12\n\nrequest_id\x18\x01 \x01(\x03\x12\x16\n\x0epassenger_name\x18\x02 \x01(\t\x12\x13\n\x0bmatch_score\x18\x03 \x01(\x01\x12\x11\n\treasoning\x18\x04 \x01(\t\":\n\rMatchResponse\x12)\n\x07matches\x18\x01 \x03(\x0b\x32\x18.matching.PassengerMatch\"\xcd\x01\n\x14PassengerSyncRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\x03\x12\x16\n\x0epassenger_name\x18\x02 \x01(\t\x12,\n\x0estart_location\x18\x03 \x01(\x0b\x32\x14.matching.Coordinate\x12*\n\x0c\x65nd_location\x18\x04 \x01(\x0b\x32\x14.matching.Coordinate\x12\x16\n\x0e\x64\x65parture_time\x18\x05 \x01(\t\x12\x17\n\x0fseats_requested\x18\x06 \x01(\x05\"\x1f\n\x0cSyncResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x32\xac\x01\n\x0fMatchingService\x12I\n\x16GetPotentialPassengers\x12\x16.matching.MatchRequest\x1a\x17.matching.MatchResponse\x12N\n\x14SyncPassengerRequest\x12\x1e.matching.PassengerSyncRequest\x1a\x16.matching.SyncResponseB\x16\n\x12\x63om.duan.hday.grpcP\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,10 +32,18 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'matching_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\022com.duan.hday.grpcP\001'
-  _globals['_MATCHREQUEST']._serialized_start=28
-  _globals['_MATCHREQUEST']._serialized_end=104
-  _globals['_MATCHRESPONSE']._serialized_start=106
-  _globals['_MATCHRESPONSE']._serialized_end=154
-  _globals['_MATCHINGSERVICE']._serialized_start=156
-  _globals['_MATCHINGSERVICE']._serialized_end=248
+  _globals['_COORDINATE']._serialized_start=28
+  _globals['_COORDINATE']._serialized_end=66
+  _globals['_MATCHREQUEST']._serialized_start=69
+  _globals['_MATCHREQUEST']._serialized_end=263
+  _globals['_PASSENGERMATCH']._serialized_start=265
+  _globals['_PASSENGERMATCH']._serialized_end=365
+  _globals['_MATCHRESPONSE']._serialized_start=367
+  _globals['_MATCHRESPONSE']._serialized_end=425
+  _globals['_PASSENGERSYNCREQUEST']._serialized_start=428
+  _globals['_PASSENGERSYNCREQUEST']._serialized_end=633
+  _globals['_SYNCRESPONSE']._serialized_start=635
+  _globals['_SYNCRESPONSE']._serialized_end=666
+  _globals['_MATCHINGSERVICE']._serialized_start=669
+  _globals['_MATCHINGSERVICE']._serialized_end=841
 # @@protoc_insertion_point(module_scope)

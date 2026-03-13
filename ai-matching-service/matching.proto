@@ -7,35 +7,54 @@ package matching;
 
 // Dịch vụ AI Matching
 service MatchingService {
-  // Java gọi Python để lấy danh sách hành khách phù hợp cho một chuyến đi mới tạo
+  // 1. Java gọi Python để lấy danh sách hành khách phù hợp cho một chuyến đi
   rpc GetPotentialPassengers (MatchRequest) returns (MatchResponse);
+
+  // 2. Java gọi Python để đồng bộ dữ liệu yêu cầu của khách hàng (MỚI THÊM)
+  rpc SyncPassengerRequest (PassengerSyncRequest) returns (SyncResponse);
 }
 
-// Cấu trúc tọa độ
+// Cấu trúc tọa độ dùng chung
 message Coordinate {
   double lat = 1;
   double lng = 2;
 }
 
-// Yêu cầu từ phía Java Core gửi sang
+// --- PHẦN 1: DÀNH CHO VIỆC TÌM KIẾM (MATCHING) ---
+
 message MatchRequest {
   int64 trip_id = 1;
   string route_polyline = 2;
   int32 available_seats = 3;
   Coordinate start_location = 4;
   Coordinate end_location = 5;
-  string departure_time = 6; // Định dạng ISO 8601
+  string departure_time = 6; 
 }
 
-// Thông tin một hành khách phù hợp do AI tìm được
 message PassengerMatch {
   int64 request_id = 1;
   string passenger_name = 2;
-  double match_score = 3;      // Độ khớp (0.0 đến 1.0)
-  string reasoning = 4;        // Lý do AI chọn (ví dụ: "Nằm trên lộ trình 1.5km")
+  double match_score = 3;      
+  string reasoning = 4;        
 }
 
-// Kết quả trả về cho Java
 message MatchResponse {
-  repeated PassengerMatch matches = 1; // Danh sách các khách hàng tìm thấy
+  repeated PassengerMatch matches = 1; 
+}
+
+// --- PHẦN 2: DÀNH CHO VIỆC ĐỒNG BỘ DỮ LIỆU (SYNC) ---
+
+// Yêu cầu đồng bộ dữ liệu từ Java sang Python (Giải quyết lỗi resolve của bạn)
+message PassengerSyncRequest {
+  int64 request_id = 1;
+  string passenger_name = 2;
+  Coordinate start_location = 3;
+  Coordinate end_location = 4;
+  string departure_time = 5;
+  int32 seats_requested = 6;
+}
+
+// Phản hồi từ Python báo cho Java biết đã lưu vào DB AI thành công chưa
+message SyncResponse {
+  bool success = 1;
 }

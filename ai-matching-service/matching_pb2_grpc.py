@@ -26,7 +26,8 @@ if _version_not_supported:
 
 
 class MatchingServiceStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """Dịch vụ AI Matching
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -39,13 +40,27 @@ class MatchingServiceStub(object):
                 request_serializer=matching__pb2.MatchRequest.SerializeToString,
                 response_deserializer=matching__pb2.MatchResponse.FromString,
                 _registered_method=True)
+        self.SyncPassengerRequest = channel.unary_unary(
+                '/matching.MatchingService/SyncPassengerRequest',
+                request_serializer=matching__pb2.PassengerSyncRequest.SerializeToString,
+                response_deserializer=matching__pb2.SyncResponse.FromString,
+                _registered_method=True)
 
 
 class MatchingServiceServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """Dịch vụ AI Matching
+    """
 
     def GetPotentialPassengers(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """1. Java gọi Python để lấy danh sách hành khách phù hợp cho một chuyến đi
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SyncPassengerRequest(self, request, context):
+        """2. Java gọi Python để đồng bộ dữ liệu yêu cầu của khách hàng (MỚI THÊM)
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -58,6 +73,11 @@ def add_MatchingServiceServicer_to_server(servicer, server):
                     request_deserializer=matching__pb2.MatchRequest.FromString,
                     response_serializer=matching__pb2.MatchResponse.SerializeToString,
             ),
+            'SyncPassengerRequest': grpc.unary_unary_rpc_method_handler(
+                    servicer.SyncPassengerRequest,
+                    request_deserializer=matching__pb2.PassengerSyncRequest.FromString,
+                    response_serializer=matching__pb2.SyncResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'matching.MatchingService', rpc_method_handlers)
@@ -67,7 +87,8 @@ def add_MatchingServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class MatchingService(object):
-    """Missing associated documentation comment in .proto file."""
+    """Dịch vụ AI Matching
+    """
 
     @staticmethod
     def GetPotentialPassengers(request,
@@ -86,6 +107,33 @@ class MatchingService(object):
             '/matching.MatchingService/GetPotentialPassengers',
             matching__pb2.MatchRequest.SerializeToString,
             matching__pb2.MatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SyncPassengerRequest(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/matching.MatchingService/SyncPassengerRequest',
+            matching__pb2.PassengerSyncRequest.SerializeToString,
+            matching__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -17,6 +17,8 @@ import java.math.BigDecimal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.duan.hday.entity.enums.VehicleType;
+import com.duan.hday.grpc.client.MatchingClient;
+
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
@@ -32,6 +34,7 @@ public class PassengerTripService {
     private final PassengerTripRequestRepository requestRepository;
     private final OsrmService osrmService;
     private final PricingPolicy pricingPolicy;
+    private final MatchingClient matchingClient;
 
     private Location saveLocation(String address, Double lat, Double lng) {
         Location loc = Location.builder()
@@ -205,6 +208,20 @@ public class PassengerTripService {
                 .estimatedPrice(finalPrice) // Lưu giá đã qua xác thực
                 .distanceKm(distanceKm)
                 .build();
+
+        // Lưu vào Core Database
+        PassengerTripRequest savedRequest = requestRepository.save(request);
+        log.info("Đặt xe thành công cho User {}: {} VNĐ", passenger.getId(), finalPrice);
+
+        // --- THÊM ĐOẠN CODE ĐỒNG BỘ Ở ĐÂY ---
+        try {
+            log.info("Đang đồng bộ Request ID {} sang AI Service...", savedRequest.getId());
+            matchingClient.syncRequestToAI(savedRequest);
+        } catch (Exception e) {
+            // Chúng ta dùng try-catch để nếu AI Service có trục trặc (timeout, sập mạng), 
+            // thì luồng đặt xe của khách hàng ở Core vẫn thành công.
+            log.error("Lỗi đồng bộ sang AI Service: {}", e.getMessage());
+        }
 
         requestRepository.save(request);
         log.info("Đặt xe thành công cho User {}: {} VNĐ", passenger.getId(), finalPrice);

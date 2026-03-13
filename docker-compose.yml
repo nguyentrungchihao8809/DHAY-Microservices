@@ -28,7 +28,7 @@ services:
   # --- AI DATABASE (Cho Python Service) ---
   # Lưu giữ: Vector Embeddings, Matching Logs, Ranking Cache
   db-ai:
-    image: ankane/pgvector:latest # Dùng image hỗ trợ vector search cho AI
+    image: postgis/postgis:15-3.3
     container_name: hday-db-ai
     restart: always
     environment:

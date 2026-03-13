@@ -7,3 +7,13 @@ numpy
 polyline
 fastapi
 uvicorn
+
+fastapi
+uvicorn
+grpcio
+grpcio-tools
+sqlalchemy
+psycopg2-binary
+geoalchemy2
+shapely
+python-dotenv
