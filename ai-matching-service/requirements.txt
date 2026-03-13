@@ -1,0 +1,9 @@
+grpcio>=1.70.0
+grpcio-tools>=1.67.0
+protobuf>=5.26.1
+psycopg2-binary==2.9.9
+shapely
+numpy
+polyline
+fastapi
+uvicorn

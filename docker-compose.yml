@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # --- CORE DATABASE (Cho Java Spring Boot) ---
+  # Lưu giữ: Users, Auth, Trips, Bookings, Requests
+  db-core:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: hday-db-core
+    restart: always
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      POSTGRES_DB: hday_core_db
+      POSTGRES_USER: user_hday
+      POSTGRES_PASSWORD: password_hday
+    ports:
+      - "5432:5432"
+    networks:
+      - hday-network
+    volumes:
+      - postgres_core_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "hday_core_db", "-U", "user_hday"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- AI DATABASE (Cho Python Service) ---
+  # Lưu giữ: Vector Embeddings, Matching Logs, Ranking Cache
+  db-ai:
+    image: ankane/pgvector:latest # Dùng image hỗ trợ vector search cho AI
+    container_name: hday-db-ai
+    restart: always
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      POSTGRES_DB: hday_ai_db
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: ai_password
+    ports:
+      - "5433:5432" # Để port 5433 để em có thể connect cả 2 DB từ máy thật bằng DBeaver/Navicat
+    networks:
+      - hday-network
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql/data
+
+  # --- AI MATCHING SERVICE (PYTHON) ---
+  ai-matching:
+    build: ./ai-matching-service
+    container_name: hday-ai-service
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/hday_ai_db
+    ports:
+      - "50051:50051"
+    networks:
+      - hday-network
+    depends_on:
+      - db-ai
+
+  # --- JAVA APP (CORE) ---
+  app:
+    build: ./core-service
+    container_name: hday-app
+    restart: on-failure
+    depends_on:
+      db-core:
+        condition: service_healthy
+      ai-matching:
+        condition: service_started
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      # Chỉ trỏ vào Core DB
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
+      - SPRING_DATASOURCE_USERNAME=user_hday
+      - SPRING_DATASOURCE_PASSWORD=password_hday
+      - FIREBASE_KEY_PATH=/app/secrets/firebase-key.json
+      - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      - GRPC_CLIENT_AISERVICE_ADDRESS=static://ai-matching:50051
+    volumes:
+      - D:/Projects/firebase-service/hday-c8226-firebase-adminsdk-fbsvc-d79d5894e1.json:/app/secrets/firebase-key.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - hday-network
+
+  # --- PGADMIN ---
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: hday-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8888:80"
+    networks:
+      - hday-network
+    depends_on:
+      - db-core
+      - db-ai
+
+networks:
+  hday-network:
+    driver: bridge
+
+volumes:
+  postgres_core_data:
+  postgres_ai_data:
