@@ -2,59 +2,64 @@ syntax = "proto3";
 
 option java_multiple_files = true;
 option java_package = "com.duan.hday.grpc";
+option java_outer_classname = "MatchingProto";
 
 package matching;
 
-// Dịch vụ AI Matching
 service MatchingService {
-  // 1. Java gọi Python để lấy danh sách hành khách phù hợp cho một chuyến đi
-  rpc GetPotentialPassengers (MatchRequest) returns (MatchResponse);
-
-  // 2. Java gọi Python để đồng bộ dữ liệu yêu cầu của khách hàng (MỚI THÊM)
-  rpc SyncPassengerRequest (PassengerSyncRequest) returns (SyncResponse);
+    // 1. Đồng bộ yêu cầu của Khách hàng
+    rpc SyncPassengerRequest (PassengerSyncRequest) returns (SyncResponse);
+    
+    // 2. Đồng bộ Chuyến đi của Tài xế (Dùng khi confirmRoute)
+    rpc SyncDriverTrip (DriverTripSyncRequest) returns (SyncResponse);
+    
+    // 3. Lấy danh sách khách hàng tiềm năng cho tài xế
+    rpc GetPotentialPassengers (MatchRequest) returns (MatchResponse);
 }
 
-// Cấu trúc tọa độ dùng chung
+// --- Các Message cho Passenger ---
 message Coordinate {
-  double lat = 1;
-  double lng = 2;
+    double lat = 1;
+    double lng = 2;
 }
 
-// --- PHẦN 1: DÀNH CHO VIỆC TÌM KIẾM (MATCHING) ---
+message PassengerSyncRequest {
+    int64 request_id = 1;
+    string passenger_name = 2;
+    Coordinate start_location = 3;
+    Coordinate end_location = 4;
+    string departure_time = 5;
+    int32 seats_requested = 6;
+}
 
+// --- Các Message cho Driver Trip (Khớp với Trip.java) ---
+message DriverTripSyncRequest {
+    int64 trip_id = 1;
+    string driver_name = 2;
+    int32 available_seats = 3;
+    string departure_time = 4;
+    string route_polyline = 5; // Đây là cái dto.getPolyline() của bạn
+    double distance_km = 6;
+}
+
+message SyncResponse {
+    bool success = 1;
+}
+
+// --- Các Message cho Matching ---
 message MatchRequest {
-  int64 trip_id = 1;
-  string route_polyline = 2;
-  int32 available_seats = 3;
-  Coordinate start_location = 4;
-  Coordinate end_location = 5;
-  string departure_time = 6; 
-}
-
-message PassengerMatch {
-  int64 request_id = 1;
-  string passenger_name = 2;
-  double match_score = 3;      
-  string reasoning = 4;        
+    int64 trip_id = 1;
+    string route_polyline = 2;
+    int32 available_seats = 3;
 }
 
 message MatchResponse {
-  repeated PassengerMatch matches = 1; 
+    repeated PassengerMatch matches = 1;
 }
 
-// --- PHẦN 2: DÀNH CHO VIỆC ĐỒNG BỘ DỮ LIỆU (SYNC) ---
-
-// Yêu cầu đồng bộ dữ liệu từ Java sang Python (Giải quyết lỗi resolve của bạn)
-message PassengerSyncRequest {
-  int64 request_id = 1;
-  string passenger_name = 2;
-  Coordinate start_location = 3;
-  Coordinate end_location = 4;
-  string departure_time = 5;
-  int32 seats_requested = 6;
-}
-
-// Phản hồi từ Python báo cho Java biết đã lưu vào DB AI thành công chưa
-message SyncResponse {
-  bool success = 1;
+message PassengerMatch {
+    int64 request_id = 1;
+    string passenger_name = 2;
+    double match_score = 3;
+    string reasoning = 4;
 }

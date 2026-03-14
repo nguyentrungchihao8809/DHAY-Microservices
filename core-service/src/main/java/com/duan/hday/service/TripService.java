@@ -37,6 +37,8 @@ public class TripService {
     private final com.duan.hday.repository.trip.LocationRepository locationRepository;
     private final OsrmService osrmService;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.duan.hday.grpc.client.MatchingClient matchingClient;
+
     @Transactional
         public void updateTripStatus(Long tripId, TripStatus newStatus, User driver) {
             Trip trip = tripRepository.findById(tripId)
@@ -156,8 +158,14 @@ public class TripService {
         trip.setRouteName(dto.getRouteName() != null ? dto.getRouteName() : "Lộ trình không tên");
         trip.setStatus(TripStatus.OPEN); 
 
-        // 5. Lưu (Transaction kết thúc, Lock được giải phóng)
-        return tripRepository.save(trip);
+        // 5. Lưu vào DB Core
+        Trip savedTrip = tripRepository.save(trip);
+        
+        // 6. ĐỒNG BỘ SANG AI (Sửa lỗi gọi tại đây)
+        // Gọi thông qua bean matchingClient đã được inject ở trên đầu class
+        matchingClient.syncDriverTripToAI(savedTrip);
+        
+        return savedTrip;
     }
 
     public List<RouteOptionDTO> handleHotspotsAndRanking(Trip trip, List<OsrmRouteDTO> osrmRoutes) {

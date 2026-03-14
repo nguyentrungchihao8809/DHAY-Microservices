@@ -15,4 +15,4 @@ class PassengerRequestAI(Base):
 # Lệnh này sẽ quét các class kế thừa Base và tạo bảng trong DB
 if __name__ == "__main__":
     Base.metadata.create_all(bind=engine)
-    print("✅ Đã tạo bảng thành công!")
+    print("Đã tạo bảng thành công!")

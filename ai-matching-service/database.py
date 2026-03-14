@@ -7,24 +7,39 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Cấu hình kết nối
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@db-ai:5432/hday_ai_db")
+# 1. Cấu hình kết nối
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@localhost:5432/hday_ai_db")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Định nghĩa Model ngay tại đây để file matching_service.py import được luôn
+# 2. Định nghĩa các Model
 class PassengerRequestAI(Base):
     __tablename__ = "passenger_requests_ai"
 
     request_id = Column(BigInteger, primary_key=True)
     passenger_name = Column(String)
-    # srid=4326 là hệ tọa độ chuẩn GPS toàn cầu (WGS84)
+    # PostGIS: POINT(lng lat)
     start_geom = Column(Geometry('POINT', srid=4326))
     end_geom = Column(Geometry('POINT', srid=4326))
     departure_time = Column(DateTime)
     seats_requested = Column(Integer)
 
-# Tự động tạo bảng khi service khởi chạy
-Base.metadata.create_all(bind=engine)
+class DriverTripAI(Base):
+    __tablename__ = "driver_trips_ai"
+
+    trip_id = Column(BigInteger, primary_key=True)
+    driver_name = Column(String)
+    available_seats = Column(Integer)
+    departure_time = Column(DateTime)
+    # PostGIS: LINESTRING(lng lat, lng lat, ...)
+    route_geom = Column(Geometry('LINESTRING', srid=4326))
+
+# 3. Tạo bảng (Phải đặt SAU khi đã định nghĩa tất cả các Class Model)
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+if __name__ == "__main__":
+    init_db()
+    print("✅ Database AI đã được khởi tạo thành công!")

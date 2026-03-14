@@ -20,7 +20,7 @@ def serve():
     # Lắng nghe tại port 50051 (Phải khớp với cấu hình trong Docker/Java)
     server.add_insecure_port('0.0.0.0:50051')
     
-    logging.info("🚀 gRPC AI Matching Service đang lắng nghe tại cổng 50051...")
+    logging.info("gRPC AI Matching Service đang lắng nghe tại cổng 50051...")
     server.start()
     server.wait_for_termination()
 

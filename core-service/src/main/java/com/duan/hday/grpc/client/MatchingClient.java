@@ -1,6 +1,7 @@
 package com.duan.hday.grpc.client;
 
 import com.duan.hday.entity.PassengerTripRequest; // Đảm bảo import đúng Entity
+import com.duan.hday.entity.Trip;
 import com.duan.hday.grpc.*; // Import tất cả class sinh ra từ proto
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.stereotype.Service;
@@ -81,6 +82,31 @@ public class MatchingClient {
         } catch (Exception e) {
             log.error("Lỗi kết nối gRPC khi gọi Matching: {}", e.getMessage());
             return "Lỗi: " + e.getMessage();
+        }
+    }
+
+    public void syncDriverTripToAI(Trip trip) {
+        try {
+            // Build request từ entity Trip
+            DriverTripSyncRequest syncRequest = DriverTripSyncRequest.newBuilder()
+                    .setTripId(trip.getId())
+                    .setDriverName(trip.getDriver().getFullName() != null ? trip.getDriver().getFullName() : "Driver")
+                    .setAvailableSeats(trip.getAvailableSeats())
+                    .setDepartureTime(trip.getDepartureTime().toString())
+                    .setRoutePolyline(trip.getRoutePolyline())
+                    .setDistanceKm(trip.getDistanceKm())
+                    .build();
+
+            // Gửi qua gRPC
+            SyncResponse response = matchingStub.syncDriverTrip(syncRequest);
+            
+            if (response.getSuccess()) {
+                log.info("✅ gRPC: Đã đồng bộ Trip ID {} sang AI Service", trip.getId());
+            } else {
+                log.warn("⚠️ gRPC: AI Service từ chối đồng bộ Trip ID {}", trip.getId());
+            }
+        } catch (Exception e) {
+            log.error("❌ gRPC: Lỗi kết nối khi đồng bộ Trip sang AI: {}", e.getMessage());
         }
     }
 }
