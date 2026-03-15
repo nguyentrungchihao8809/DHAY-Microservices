@@ -23,6 +23,14 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
+                // Cho phép tất cả mọi người truy cập các đường dẫn của Swagger
+                .requestMatchers(
+                    "/v3/api-docs/**",
+                    "/swagger-ui/**",
+                    "/swagger-ui.html",
+                    "/webjars/**"
+                ).permitAll()
+                // Cho phép truy cập không cần xác thực cho một số endpoint nhất định
                 .requestMatchers("/api/v1/matching/trigger/**").permitAll()
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 .requestMatchers("/api/v1/matching/**").authenticated()

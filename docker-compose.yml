@@ -27,6 +27,7 @@ services:
 
   # --- AI DATABASE (Cho Python Service) ---
   # Lưu giữ: Vector Embeddings, Matching Logs, Ranking Cache
+  # --- AI DATABASE (Cho Python Service) ---
   db-ai:
     image: postgis/postgis:15-3.3
     container_name: hday-db-ai
@@ -37,11 +38,16 @@ services:
       POSTGRES_USER: ai_user
       POSTGRES_PASSWORD: ai_password
     ports:
-      - "5433:5432" # Để port 5433 để em có thể connect cả 2 DB từ máy thật bằng DBeaver/Navicat
+      - "5433:5432"
     networks:
       - hday-network
     volumes:
       - postgres_ai_data:/var/lib/postgresql/data
+    healthcheck: # THÊM CÁI NÀY
+      test: ["CMD-SHELL", "pg_isready -U ai_user -d hday_ai_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # --- AI MATCHING SERVICE (PYTHON) ---
   ai-matching:
@@ -56,8 +62,12 @@ services:
     networks:
       - hday-network
     depends_on:
-      - db-ai
-
+      db-ai:
+        condition: service_healthy # Chờ DB thật sự khỏe mới chạy
+    # THÊM DÒNG NÀY: Chạy khởi tạo bảng trước, sau đó mới chạy Service chính
+    command: >
+      sh -c "python database.py && python matching_service.py"
+      
   # --- JAVA APP (CORE) ---
   app:
     build: ./core-service

@@ -12,7 +12,7 @@ class MatchingService(matching_pb2_grpc.MatchingServiceServicer):
 
     # --- HÀM 1: ĐỒNG BỘ YÊU CẦU KHÁCH HÀNG ---
     def SyncPassengerRequest(self, request, context):
-        logging.info(f"--- [📥 SYNC PASSENGER] ID: {request.request_id} ---")
+        logging.info(f"--- [SYNC PASSENGER] ID: {request.request_id} ---")
         db = SessionLocal()
         try:
             # Xử lý format thời gian từ Java (ISO_LOCAL_DATE_TIME)
@@ -30,19 +30,19 @@ class MatchingService(matching_pb2_grpc.MatchingServiceServicer):
             
             db.merge(new_req)
             db.commit()
-            logging.info(f"✅ Đã lưu Passenger {request.request_id} vào AI DB.")
+            logging.info(f"Đã lưu Passenger {request.request_id} vào AI DB.")
             return matching_pb2.SyncResponse(success=True)
             
         except Exception as e:
             db.rollback()
-            logging.error(f"❌ Lỗi Sync Passenger: {str(e)}")
+            logging.error(f"Lỗi Sync Passenger: {str(e)}")
             return matching_pb2.SyncResponse(success=False)
         finally:
             db.close()
 
     # --- HÀM 2: ĐỒNG BỘ LỘ TRÌNH TÀI XẾ (MỚI) ---
     def SyncDriverTrip(self, request, context):
-        logging.info(f"--- [📥 SYNC DRIVER TRIP] ID: {request.trip_id} ---")
+        logging.info(f"--- [SYNC DRIVER TRIP] ID: {request.trip_id} ---")
         db = SessionLocal()
         try:
             # 1. Giải mã Polyline sang LINESTRING
@@ -64,18 +64,18 @@ class MatchingService(matching_pb2_grpc.MatchingServiceServicer):
             
             db.merge(new_trip)
             db.commit()
-            logging.info(f"✅ Đã lưu lộ trình Trip {request.trip_id} (Length: {len(coords)} points).")
+            logging.info(f"Đã lưu lộ trình Trip {request.trip_id} (Length: {len(coords)} points).")
             return matching_pb2.SyncResponse(success=True)
         except Exception as e:
             db.rollback()
-            logging.error(f"❌ Lỗi Sync Driver Trip: {str(e)}")
+            logging.error(f"Lỗi Sync Driver Trip: {str(e)}")
             return matching_pb2.SyncResponse(success=False)
         finally:
             db.close()
 
     # --- HÀM 3: TÌM KIẾM KHÁCH HÀNG (MATCHING LOGIC) ---
     def GetPotentialPassengers(self, request, context):
-        logging.info(f"--- [🔍 MATCHING REQUEST] Trip ID: {request.trip_id} ---")
+        logging.info(f"--- [MATCHING REQUEST] Trip ID: {request.trip_id} ---")
         # Tạm thời để Mockup, chúng ta sẽ viết câu Query PostGIS ở bước kế tiếp
         response = matching_pb2.MatchResponse()
         match1 = response.matches.add()
