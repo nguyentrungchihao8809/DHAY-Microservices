@@ -8,5 +8,6 @@ public class NotificationTestRequest {
     private Long targetUserId;
     private String title;
     private String body;
+    private String type; 
     private Map<String, String> data; // Cho phép truyền bất kỳ key-value nào vào đây
 }

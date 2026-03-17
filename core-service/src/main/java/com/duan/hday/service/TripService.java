@@ -6,8 +6,8 @@ import com.duan.hday.entity.Location;
 import com.duan.hday.entity.Trip;
 import com.duan.hday.entity.User;
 import com.duan.hday.entity.Vehicle;
+import com.duan.hday.entity.enums.NotificationType;
 import com.duan.hday.entity.enums.TripStatus;
-import com.duan.hday.event.TripStatusEvent;
 import com.duan.hday.exception.AppException;
 import com.duan.hday.exception.ErrorCode;
 import com.duan.hday.integration.OsrmRouteDTO;
@@ -15,7 +15,6 @@ import com.duan.hday.repository.driver.VehicleRepository;
 import lombok.RequiredArgsConstructor;
 import java.time.LocalDateTime;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.duan.hday.repository.trip.TripRepository;
@@ -36,45 +35,53 @@ public class TripService {
     private final VehicleRepository vehicleRepository;
     private final com.duan.hday.repository.trip.LocationRepository locationRepository;
     private final OsrmService osrmService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final NotificationService notificationService;
     private final com.duan.hday.grpc.client.MatchingClient matchingClient;
 
     @Transactional
-        public void updateTripStatus(Long tripId, TripStatus newStatus, User driver) {
-            Trip trip = tripRepository.findById(tripId)
-                    .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+    public void updateTripStatus(Long tripId, TripStatus newStatus, User driver) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
-            // 1. Kiểm tra quyền sở hữu
-            if (!trip.getDriver().getId().equals(driver.getId())) {
-                throw new AppException(ErrorCode.ACCESS_DENIED);
-            }
-
-            // 2. Validate logic chuyển trạng thái (State Transition)
-            validateStatusTransition(trip.getStatus(), newStatus);
-
-            // 3. Cập nhật
-            trip.setStatus(newStatus);
-            Trip savedTrip = tripRepository.save(trip);
-
-            // 4. Phát sự kiện (Notification Service sẽ bắt được cái này để gửi cho khách)
-            eventPublisher.publishEvent(new TripStatusEvent(savedTrip, newStatus));
-            
-            log.info("Trip {} status updated from {} to {}", tripId, trip.getStatus(), newStatus);
+        // 1. Kiểm tra quyền sở hữu
+        if (!trip.getDriver().getId().equals(driver.getId())) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        private void validateStatusTransition(TripStatus current, TripStatus next) {
-            if (current == TripStatus.COMPLETED || current == TripStatus.CANCELED) {
-                throw new RuntimeException("Chuyến đi đã kết thúc, không thể thay đổi trạng thái nữa.");
-            }
+        // 2. Validate logic chuyển trạng thái
+        validateStatusTransition(trip.getStatus(), newStatus);
 
-            if (next == TripStatus.STARTED && (current != TripStatus.OPEN && current != TripStatus.FULL)) {
-                throw new RuntimeException("Chuyến đi chỉ có thể bắt đầu khi đang ở trạng thái OPEN hoặc FULL.");
-            }
+        // 3. Cập nhật trạng thái
+        trip.setStatus(newStatus);
+        Trip savedTrip = tripRepository.save(trip);
 
-            if (next == TripStatus.COMPLETED && current != TripStatus.STARTED) {
-                throw new RuntimeException("Bạn phải bắt đầu chuyến đi trước khi xác nhận hoàn thành.");
-            }
+        // 4. Bắn thông báo cho hành khách dựa trên trạng thái mới
+        if (savedTrip.getBookings() != null) {
+            savedTrip.getBookings().forEach(booking -> {
+                Long passengerId = booking.getPassenger().getId();
+                java.util.Map<String, String> data = java.util.Map.of(
+                    "tripId", tripId.toString(),
+                    "status", newStatus.name()
+                );
+
+                // Logic chọn mẫu thông báo dựa trên trạng thái mới
+                switch (newStatus) {
+                    case STARTED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_STARTED, data, trip.getEndLocation().getAddress());
+                    
+                    case COMPLETED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_COMPLETED, data);
+
+                    case CANCELED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_CANCELED, data, tripId.toString());
+                    
+                    default -> log.info("Không có thông báo đặc biệt cho trạng thái: {}", newStatus);
+                }
+            });
         }
+
+        log.info("Trip {} status updated from {} to {}", tripId, trip.getStatus(), newStatus);
+    }
     @Transactional
     public Trip createTrip(TripCreateDTO dto, User driver) { // Nhận trực tiếp đối tượng User
         
@@ -305,5 +312,19 @@ public class TripService {
                         .endAddress(trip.getEndLocation().getAddress())
                         .build())
                 .collect(java.util.stream.Collectors.toList());
+    }
+    // Thêm hàm này vào bên trong class TripService
+    private void validateStatusTransition(TripStatus current, TripStatus next) {
+        if (current == TripStatus.COMPLETED || current == TripStatus.CANCELED) {
+            throw new RuntimeException("Chuyến đi đã kết thúc, không thể thay đổi trạng thái nữa.");
+        }
+
+        if (next == TripStatus.STARTED && (current != TripStatus.OPEN && current != TripStatus.FULL)) {
+            throw new RuntimeException("Chuyến đi chỉ có thể bắt đầu khi đang ở trạng thái OPEN hoặc FULL.");
+        }
+
+        if (next == TripStatus.COMPLETED && current != TripStatus.STARTED) {
+            throw new RuntimeException("Bạn phải bắt đầu chuyến đi trước khi xác nhận hoàn thành.");
+        }
     }
 }

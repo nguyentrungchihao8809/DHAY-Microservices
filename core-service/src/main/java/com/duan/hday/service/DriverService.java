@@ -25,37 +25,34 @@ public class DriverService {
 
     @Transactional
     public Long registerAsDriver(Long userId, DriverRegistrationRequest request) {
-        // 1. Kiểm tra User tồn tại (Fail-fast)
+        // 1. Tìm user (User này hiện đang ở trạng thái Managed)
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại"));
 
-        // 2. Kiểm tra tính hợp lệ của tài khoản
+        // 2. Validate (Giữ nguyên logic của bạn)
         if (!user.getIsActive() || user.getIsDeleted()) {
-            throw new RuntimeException("Tài khoản người dùng đã bị khóa hoặc bị xóa");
+            throw new RuntimeException("Tài khoản không hợp lệ");
         }
-
-        // 3. Kiểm tra xem đã đăng ký chưa
         if (driverProfileRepository.existsById(userId)) {
-            throw new RuntimeException("Bạn đã đăng ký làm tài xế trước đó rồi");
+            throw new RuntimeException("Bạn đã đăng ký rồi");
         }
 
-        // 4. Tạo Driver Profile
+        // 3. Tạo Driver Profile và gán vào User (Không gọi repository.save ở đây)
         DriverProfile profile = DriverProfile.builder()
-                .userId(userId) // Đảm bảo MapsId đồng bộ đúng PK/FK
-                .user(user)
+                .user(user) // @MapsId sẽ tự lấy ID từ user
                 .licenseNumber(request.getLicenseNumber())
-                .isActive(false) // Senior Tip: Mặc định là false để Admin duyệt
-                .ratingAvg(5.0)
-                .totalTrips(0)
+                .isActive(false)
                 .build();
-        driverProfileRepository.save(profile);
+        
+        // Gán ngược lại cho user để đảm bảo tính nhất quán của object graph
+        user.setDriverProfile(profile);
 
-        // 5. Kiểm tra biển số xe trùng lặp
+        // 4. Kiểm tra biển số
         if (vehicleRepository.existsByVehiclePlate(request.getVehiclePlate())) {
-            throw new RuntimeException("Biển số xe này đã được đăng ký trên hệ thống");
+            throw new RuntimeException("Biển số xe đã tồn tại");
         }
 
-        // 6. Tạo Vehicle
+        // 5. Tạo Vehicle và gán vào list của User
         Vehicle vehicle = Vehicle.builder()
                 .driver(user)
                 .vehiclePlate(request.getVehiclePlate())
@@ -63,12 +60,13 @@ public class DriverService {
                 .vehicleModel(request.getVehicleModel())
                 .vehicleType(request.getVehicleType())
                 .capacity(request.getCapacity())
-                .isVerified(false) // Chờ duyệt
+                .isVerified(false)
                 .build();
 
+        // Thay vì save lẻ tẻ, hãy để CascadeType.ALL ở User thực hiện khi kết thúc Transaction
+        // Hoặc nếu muốn an toàn, chỉ save thằng Vehicle vì nó là entity độc lập hơn
         Vehicle savedVehicle = vehicleRepository.save(vehicle);
         
-        // TRẢ VỀ ID: Thay đổi từ void sang Long ở đây
-        return savedVehicle.getId(); 
+        return savedVehicle.getId();
     }
 }

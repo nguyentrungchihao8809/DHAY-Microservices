@@ -2,7 +2,6 @@ package com.duan.hday.service;
 
 import com.duan.hday.entity.*;
 import com.duan.hday.entity.enums.*;
-import com.duan.hday.event.BookingEvent;
 import com.duan.hday.exception.AppException;
 import com.duan.hday.repository.passenger.BookingRepository;
 import com.duan.hday.repository.passenger.PassengerTripRequestRepository;
@@ -11,12 +10,12 @@ import com.duan.hday.util.GeometryUtils;
 
 import lombok.RequiredArgsConstructor;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.locationtech.jts.geom.LineString;
 import lombok.extern.slf4j.Slf4j;
 import com.duan.hday.exception.ErrorCode;
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -26,7 +25,7 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final TripRepository tripRepository;
     private final PassengerTripRequestRepository requestRepository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final NotificationService notificationService;
     @Transactional
     public Booking confirmPassenger(Long tripId, Long requestId, User currentUser) {
         // 1. Tìm Trip
@@ -81,7 +80,19 @@ public class BookingService {
         trip.setAvailableSeats(trip.getAvailableSeats() - pRequest.getSeatsRequested());
 
         Booking savedBooking = bookingRepository.save(booking);
-        eventPublisher.publishEvent(new BookingEvent(savedBooking, "CONFIRMED"));
+        // --- GỬI THÔNG BÁO CHO KHÁCH HÀNG ---
+        Map<String, String> data = Map.of(
+            "bookingId", savedBooking.getId().toString(),
+            "tripId", tripId.toString(),
+            "type", "BOOKING_CONFIRMED"
+        );
+
+        notificationService.sendTypedNotification(
+            savedBooking.getPassenger().getId(), 
+            NotificationType.BOOKING_CONFIRMED, 
+            data, 
+            trip.getDriver().getFullName() // Truyền vào %s trong template
+        );
 
         return savedBooking;
     }
@@ -94,13 +105,18 @@ public class BookingService {
         pRequest.setStatus(RequestStatus.CANCELED);
         requestRepository.save(pRequest);
 
-        // Chỗ này cần lưu ý: Vì reject chưa tạo Booking, 
-        // em có thể tạo một Event riêng hoặc mock một đối tượng Booking để gửi đi
-        // Ở đây anh dùng giải pháp sạch hơn là tạo BookingEvent với thông tin tối thiểu
-        Booking mockBooking = Booking.builder()
-                .passenger(pRequest.getPassenger())
-                .build();
-        eventPublisher.publishEvent(new BookingEvent(mockBooking, "REJECTED"));
+        // --- GỬI THÔNG BÁO CHO KHÁCH HÀNG ---
+        Map<String, String> data = Map.of(
+            "requestId", requestId.toString(),
+            "type", "BOOKING_REJECTED"
+        );
+
+        notificationService.sendTypedNotification(
+            pRequest.getPassenger().getId(), 
+            NotificationType.BOOKING_REJECTED, 
+            data, 
+            driver.getFullName() // Truyền vào %s trong template
+        );
     }
     @Transactional
     public void releaseSeats(Booking booking) {
@@ -113,7 +129,6 @@ public class BookingService {
         );
 
         // 2. Tìm lại điểm đón/trả của khách trên lộ trình tài xế
-        // Lưu ý: Em nên lưu start_location_id và end_location_id vào Booking 
         // để tránh phải query ngược lại PassengerTripRequest
         PassengerTripRequest pReq = requestRepository.findByPassengerAndMatchedTrip(booking.getPassenger(), trip)
                 .orElse(null);

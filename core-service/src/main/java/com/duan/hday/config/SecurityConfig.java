@@ -30,6 +30,7 @@ public class SecurityConfig {
                     "/swagger-ui.html",
                     "/webjars/**"
                 ).permitAll()
+                .requestMatchers("/api/v1/devices/test-push").permitAll()
                 // Cho phép truy cập không cần xác thực cho một số endpoint nhất định
                 .requestMatchers("/api/v1/matching/trigger/**").permitAll()
                 .requestMatchers("/api/v1/auth/**").permitAll()

@@ -3,8 +3,6 @@ package com.duan.hday.controller.auth;
 import com.duan.hday.service.UserDeviceService;
 import lombok.RequiredArgsConstructor;
 
-import java.util.HashMap;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,8 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.duan.hday.config.UserPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import com.duan.hday.service.NotificationService;
-import java.util.Map;
 import com.duan.hday.dto.request.notification.NotificationTestRequest;
+import com.duan.hday.entity.enums.NotificationType;
+
 
 @RestController
 @RequestMapping("/api/v1/devices")
@@ -41,19 +40,39 @@ public class DeviceController {
 
     @PostMapping("/test-push")
     public ResponseEntity<String> testPush(@RequestBody NotificationTestRequest request) {
-        // Nếu không truyền data, khởi tạo Map trống tránh lỗi Null
-        Map<String, String> payload = request.getData() != null ? request.getData() : new HashMap<>();
+        // Lấy type từ request, nếu không có thì mặc định là MATCH_FOUND để test
+        String typeStr = request.getType() != null ? request.getType() : "MATCH_FOUND";
         
-        // Luôn đảm bảo có click_action để Mobile xử lý được
-        payload.putIfAbsent("click_action", "FLUTTER_NOTIFICATION_CLICK");
+        // Chuyển string sang Enum NotificationType
+        com.duan.hday.entity.enums.NotificationType typeEnum;
+        try {
+            typeEnum = com.duan.hday.entity.enums.NotificationType.valueOf(typeStr);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("Type không hợp lệ! Hãy dùng: NEW_BOOKING_REQUEST, MATCH_FOUND, v.v.");
+        }
 
-        notificationService.sendNotification(
-            request.getTargetUserId(), 
-            request.getTitle(), 
-            request.getBody(), 
-            payload
-        );
+        // Tạo data payload kèm theo key 'type' cho Flutter
+        java.util.Map<String, String> data = new java.util.HashMap<>();
+        data.put("type", typeStr); // QUAN TRỌNG: Key này để Flutter bắt logic
+        data.put("click_action", "FLUTTER_NOTIFICATION_CLICK");
         
-        return ResponseEntity.ok("Push triggered for user: " + request.getTargetUserId());
+        // Nếu là NEW_BOOKING_REQUEST, Hào truyền 2 tham số: Tên và Số ghế
+    if (typeStr.equals("NEW_BOOKING_REQUEST")) {
+        notificationService.sendTypedNotification(
+            request.getTargetUserId(), 
+            typeEnum, 
+            data, 
+            "Hào Senior", 4 // {0} là Hào Senior, {1} là số 4
+        );
+    } else {
+        notificationService.sendTypedNotification(
+            request.getTargetUserId(), 
+            typeEnum, 
+            data, 
+            "Hào Senior"
+        );
+    }
+        
+        return ResponseEntity.ok("Push event [" + typeStr + "] published to Redis for user: " + request.getTargetUserId());
     }
 }

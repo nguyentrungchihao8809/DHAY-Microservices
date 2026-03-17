@@ -5,6 +5,7 @@ import com.duan.hday.dto.response.passenger.PriceEstimationResponse;
 import com.duan.hday.entity.Location;
 import com.duan.hday.entity.User;
 import com.duan.hday.entity.PassengerTripRequest;
+import com.duan.hday.entity.enums.NotificationType;
 import com.duan.hday.entity.enums.RequestStatus;
 import com.duan.hday.repository.trip.LocationRepository;
 import com.duan.hday.repository.passenger.PassengerTripRequestRepository;
@@ -23,6 +24,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 import lombok.extern.slf4j.Slf4j;
+import java.util.Map;                            
 
 
 @Service
@@ -35,6 +37,7 @@ public class PassengerTripService {
     private final OsrmService osrmService;
     private final PricingPolicy pricingPolicy;
     private final MatchingClient matchingClient;
+    private final NotificationService notificationService;
 
     private Location saveLocation(String address, Double lat, Double lng) {
         Location loc = Location.builder()
@@ -213,14 +216,21 @@ public class PassengerTripService {
         PassengerTripRequest savedRequest = requestRepository.save(request);
         log.info("Đặt xe thành công cho User {}: {} VNĐ", passenger.getId(), finalPrice);
 
-        // --- THÊM ĐOẠN CODE ĐỒNG BỘ Ở ĐÂY ---
+        // 5. ĐỒNG BỘ SANG AI SERVICE
         try {
             log.info("Đang đồng bộ Request ID {} sang AI Service...", savedRequest.getId());
             matchingClient.syncRequestToAI(savedRequest);
+            
+            // HOẶC: Thông báo cho khách hàng là yêu cầu đã được gửi lên hệ thống
+            notificationService.sendTypedNotification(
+                passenger.getId(), 
+                NotificationType.MATCH_FOUND, // Hoặc một Type "REQUEST_CREATED" bạn tự thêm
+                Map.of("requestId", savedRequest.getId().toString()),
+                "Hệ thống" // Tham số truyền vào template
+            );
+
         } catch (Exception e) {
-            // Chúng ta dùng try-catch để nếu AI Service có trục trặc (timeout, sập mạng), 
-            // thì luồng đặt xe của khách hàng ở Core vẫn thành công.
-            log.error("Lỗi đồng bộ sang AI Service: {}", e.getMessage());
+            log.error("Lỗi đồng bộ hoặc gửi thông báo: {}", e.getMessage());
         }
 
         requestRepository.save(request);
