@@ -44,6 +44,27 @@ services:
       timeout: 5s
       retries: 5
 
+  db-payment:
+    image: postgres:16-alpine # Payment không cần PostGIS, Postgres nhẹ là đủ
+    container_name: hday-db-payment
+    restart: always
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      POSTGRES_DB: hday_payment_db
+      POSTGRES_USER: user_hday
+      POSTGRES_PASSWORD: password_hday
+    ports:
+      - "5434:5432" # Ánh xạ ra ngoài máy thật port 5434
+    networks:
+      - hday-network
+    volumes:
+      - postgres_payment_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "hday_payment_db", "-U", "user_hday"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # --- REDIS (Trạm trung chuyển) ---
   redis:
     image: redis:alpine
@@ -122,6 +143,29 @@ services:
     networks:
       - hday-network
 
+  payment-service:
+    build: ./payment-service
+    container_name: hday-payment-app
+    restart: on-failure
+    depends_on:
+      db-payment:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-payment:5432/hday_payment_db
+      - SPRING_DATASOURCE_USERNAME=user_hday
+      - SPRING_DATASOURCE_PASSWORD=password_hday
+      - SPRING_DATA_REDIS_HOST=redis
+      # VNPay Config (Có thể ghi đè tại đây nếu cần)
+      - VNP_TMN_CODE=2QXUI4J4
+      - VNP_HASH_SECRET=99999999999999999999999999999999
+    ports:
+      - "8084:8084"
+    networks:
+      - hday-network
+
   # --- PGADMIN ---
   pgadmin:
     image: dpage/pgadmin4
@@ -137,6 +181,7 @@ services:
     depends_on:
       - db-core
       - db-ai
+      - db-payment
 
 networks:
   hday-network:
@@ -146,3 +191,4 @@ networks:
 volumes:
   postgres_core_data:
   postgres_ai_data:
+  postgres_payment_data:
