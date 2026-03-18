@@ -1,28 +1,27 @@
 package com.duan.payment.entity;
 
-import com.duan.payment.common.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payment_transactions")
-@Getter @Setter
+@Getter @Setter @Builder
 @NoArgsConstructor @AllArgsConstructor
-@Builder
-public class PaymentTransaction extends BaseEntity {
-
+public class PaymentTransaction {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "payment_request_id")
-    private PaymentRequest paymentRequest;
+    private Long bookingId;
+    private String transactionRef; // Mã đơn hàng gửi sang VNPay/Momo
+    private String provider;       // MOMO, VNPAY
+    private BigDecimal amount;
+    
+    @Enumerated(EnumType.STRING)
+    private TransactionStatus status; // PENDING, SUCCESS, FAILED
 
-    private String externalTransactionId; // Mã GD của VNPAY/Momo
-
-    @Column(columnDefinition = "TEXT")
-    private String rawResponseLog; // Lưu JSON/Query thô từ Gateway
-
-    private String responseCode; // Ví dụ: 00 là thành công của VNPAY
+    private String providerTransactionId; // Mã giao dịch của cổng trả về
+    private LocalDateTime createdAt;
 }

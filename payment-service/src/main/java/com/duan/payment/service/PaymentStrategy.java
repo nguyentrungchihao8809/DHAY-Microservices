@@ -1,9 +1,8 @@
 package com.duan.payment.service;
 
-import com.duan.payment.entity.PaymentRequest;
-import jakarta.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
 
 public interface PaymentStrategy {
-    // Trả về URL thanh toán cho Frontend
-    String createPaymentUrl(PaymentRequest payment, HttpServletRequest request);
+    String createPaymentUrl(Long bookingId, BigDecimal amount, String description);
+    String getProviderName();
 }

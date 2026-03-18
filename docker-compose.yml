@@ -105,10 +105,12 @@ services:
     depends_on:
       db-core:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       ai-matching:
         condition: service_started
       redis:
-        condition: service_healthy # Đợi Redis sẵn sàng mới bắn tin
+        condition: service_healthy
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
@@ -117,6 +119,13 @@ services:
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
       - GRPC_CLIENT_AI_SERVICE_ADDRESS=static://ai-matching:50051
       - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      - APP_INTERNAL_API_KEY=hday_secret_2026
+      - APP_RABBITMQ_PAYMENT_SUCCESS_QUEUE=payment.success.queue
+      - APP_RABBITMQ_PAYMENT_EXCHANGE=payment.exchange
     # Core-service bây giờ không cần mount file firebase nữa
     ports:
       - "8080:8080"
@@ -148,19 +157,28 @@ services:
     container_name: hday-payment-app
     restart: on-failure
     depends_on:
-      db-payment:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      db-payment: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy } # Thêm cái này
+      app: { condition: service_started }      # Đợi Core sẵn sàng để Feign gọi
     environment:
       - TZ=Asia/Ho_Chi_Minh
+      - SERVER_PORT=8084
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db-payment:5432/hday_payment_db
       - SPRING_DATASOURCE_USERNAME=user_hday
       - SPRING_DATASOURCE_PASSWORD=password_hday
-      - SPRING_DATA_REDIS_HOST=redis
-      # VNPay Config (Có thể ghi đè tại đây nếu cần)
-      - VNP_TMN_CODE=2QXUI4J4
-      - VNP_HASH_SECRET=99999999999999999999999999999999
+      # Kết nối sang Core-service (Tên service trong docker là 'app')
+      - APP_SERVICES_CORE_URL=http://app:8080
+      - APP_INTERNAL_API_KEY=hday_secret_2026
+      # Kết nối RabbitMQ
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      # VNPay Config (Khớp với Strategy)
+      - APP_PAYMENT_VNPAY_TMN_CODE=2QXUI4J4
+      - APP_PAYMENT_VNPAY_SECRET_KEY=99999999999999999999999999999999
+      - APP_PAYMENT_VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+      - APP_PAYMENT_VNPAY_RETURN_URL=http://localhost:8084/api/v1/payments/vnpay-callback
     ports:
       - "8084:8084"
     networks:
@@ -182,6 +200,24 @@ services:
       - db-core
       - db-ai
       - db-payment
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: hday-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"   # Cổng cho ứng dụng kết nối
+      - "15672:15672" # Cổng cho UI quản lý (truy cập localhost:15672)
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - hday-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   hday-network:

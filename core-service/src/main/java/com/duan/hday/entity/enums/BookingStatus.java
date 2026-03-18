@@ -6,33 +6,11 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum BookingStatus {
-
-    /**
-     * Booking vừa được tạo
-     * - Chưa giữ ghế chính thức
-     * - Chờ thanh toán
-     */
-    PENDING("Đang chờ xác nhận"),
-
-    /**
-     * Thanh toán thành công
-     * - Ghế đã được giữ
-     * - Driver & Passenger đã ràng buộc
-     */
-    CONFIRMED("Đã xác nhận"),
-
-    /**
-     * Passenger hoặc hệ thống hủy
-     * - Thanh toán thất bại
-     * - Trip bị hủy
-     */
-    CANCELED("Đã hủy"),
-
-    /**
-     * Chuyến đi đã hoàn thành
-     * - Cho phép review
-     */
-    COMPLETED("Đã hoàn thành");
-    
-    private final String label;
+    AWAITING_PAYMENT, // Khách vừa bấm đặt, chưa thanh toán (nếu chọn VNPay/Momo)
+    PAID,             // Đã thanh toán xong, đang đợi hệ thống tìm tài xế
+    CONFIRMED,        // Đã có tài xế nhận chuyến
+    ON_THE_WAY,       // Tài xế đang đón khách
+    IN_PROGRESS,      // Đang di chuyển
+    COMPLETED,        // Hoàn thành
+    CANCELLED         // Đã hủy
 }

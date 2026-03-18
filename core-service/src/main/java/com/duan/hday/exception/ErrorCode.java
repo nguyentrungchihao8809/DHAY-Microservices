@@ -23,7 +23,10 @@ public enum ErrorCode {
     UNCATEGORIZED_EXCEPTION("SYS_999", "Lỗi không xác định", HttpStatus.INTERNAL_SERVER_ERROR),
     VALIDATION_ERROR("SYS_001", "Dữ liệu đầu vào không hợp lệ", HttpStatus.BAD_REQUEST),
 
+    BOOKING_NOT_FOUND("BOOK_001", "Không tìm thấy thông tin đặt chỗ!", HttpStatus.NOT_FOUND),
+
     ACCESS_DENIED("SYS_1003", "Bạn không có quyền thực hiện hành động này", HttpStatus.FORBIDDEN);
+    
 
     private final String code;
     private final String message;

@@ -14,6 +14,7 @@ public enum NotificationType {
     MATCH_FOUND("Tìm thấy chuyến xe phù hợp", "Tài xế {0} có chuyến đi phù hợp với bạn."),
     TRIP_STARTED("Chuyến đi bắt đầu", "Chuyến xe đi {0} đã khởi hành!"),
     TRIP_COMPLETED("Chuyến đi hoàn tất", "Chuyến đi đã kết thúc an toàn. Cảm ơn bạn đã sử dụng dịch vụ!"),
+    MATCHING_IN_PROGRESS("Đang tìm kiếm tài xế", "Hệ thống đang tìm kiếm tài xế phù hợp cho bạn."),
     TRIP_CANCELED("Chuyến đi bị hủy", "Rất tiếc, chuyến đi mã #{0} đã bị hủy bởi tài xế.");
 
     private final String title;
