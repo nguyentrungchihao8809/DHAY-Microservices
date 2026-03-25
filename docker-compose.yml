@@ -98,7 +98,7 @@ services:
     command: python matching_service.py
 
   # --- JAVA APP (CORE) ---
-  app:
+  core-service:
     build: ./core-service
     container_name: hday-app
     restart: on-failure
@@ -126,9 +126,11 @@ services:
       - APP_INTERNAL_API_KEY=hday_secret_2026
       - APP_RABBITMQ_PAYMENT_SUCCESS_QUEUE=payment.success.queue
       - APP_RABBITMQ_PAYMENT_EXCHANGE=payment.exchange
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_APPLICATION_NAME=dhay-core-service
     # Core-service bây giờ không cần mount file firebase nữa
-    ports:
-      - "8080:8080"
+    ports: !reset
+      - "8081:8080"
     networks:
       - hday-network
 
@@ -159,7 +161,7 @@ services:
     depends_on:
       db-payment: { condition: service_healthy }
       rabbitmq: { condition: service_healthy } # Thêm cái này
-      app: { condition: service_started }      # Đợi Core sẵn sàng để Feign gọi
+      core-service: { condition: service_started }      # Đợi Core sẵn sàng để Feign gọi
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SERVER_PORT=8084
@@ -167,7 +169,7 @@ services:
       - SPRING_DATASOURCE_USERNAME=user_hday
       - SPRING_DATASOURCE_PASSWORD=password_hday
       # Kết nối sang Core-service (Tên service trong docker là 'app')
-      - APP_SERVICES_CORE_URL=http://app:8080
+      - APP_SERVICES_CORE_URL=http://core-service:8080
       - APP_INTERNAL_API_KEY=hday_secret_2026
       # Kết nối RabbitMQ
       - SPRING_RABBITMQ_HOST=rabbitmq
@@ -218,6 +220,45 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # --- DISCOVERY SERVER (EUREKA) ---
+  discovery-server:
+    build: ./discovery-server # Đường dẫn đến dự án Eureka của bạn
+    container_name: hday-discovery
+    restart: always
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - SERVER_PORT=8761
+      # Eureka Server không cần tự đăng ký chính nó
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
+      - EUREKA_CLIENT_FETCH_REGISTRY=false
+    ports:
+      - "8761:8761"
+    networks:
+      - hday-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- API GATEWAY ---
+  dhay-gateway:
+    build: ./dhay-gateway # Đường dẫn đến dự án Spring Cloud Gateway
+    container_name: hday-gateway
+    restart: on-failure
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - SERVER_PORT=8080
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    ports:
+      - "8000:8080" # Mobile sẽ gọi vào cổng 8000 thay cho 8080 cũ của core
+    networks:
+      - hday-network
 
 networks:
   hday-network:
