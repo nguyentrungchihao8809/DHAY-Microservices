@@ -1,5 +1,6 @@
 package com.duan.hday.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -7,8 +8,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
-import lombok.RequiredArgsConstructor;
 
 @Configuration
 @EnableWebSecurity
@@ -22,24 +21,25 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
+            .cors(cors -> cors.disable()) // Gateway đã xử lý CORS, tắt ở Core để tránh xung đột
             .authorizeHttpRequests(auth -> auth
-                // Cho phép tất cả mọi người truy cập các đường dẫn của Swagger
+                // Public các đường dẫn Swagger/OpenAPI
                 .requestMatchers(
                     "/v3/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html",
-                    "/webjars/**"
+                    "/webjars/**",
+                    "/actuator/**"
                 ).permitAll()
-                .requestMatchers("/api/v1/devices/test-push").permitAll()
-                // Cho phép truy cập không cần xác thực cho một số endpoint nhất định
-                .requestMatchers("/api/v1/matching/trigger/**").permitAll()
+                
+                // Public các endpoint đăng ký/đăng nhập
                 .requestMatchers("/api/v1/auth/**").permitAll()
-                .requestMatchers("/api/v1/matching/**").authenticated()
-                .requestMatchers("/api/drivers/**").authenticated() 
-                .requestMatchers("/api/v1/passengers/**").authenticated()
-                .requestMatchers("/api/v1/system/**").permitAll()
-                .requestMatchers("/api/v1/devices/**").authenticated()
-                .requestMatchers("/api/v1/reviews/**").authenticated()
+                
+                // Public một số hệ thống (nếu cần)
+                .requestMatchers("/api/v1/system/**", "/api/v1/matching/trigger/**").permitAll()
+                .requestMatchers("/api/v1/devices/test-push").permitAll()
+
+                // Tất cả các request còn lại phải được xác thực bằng JWT
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session

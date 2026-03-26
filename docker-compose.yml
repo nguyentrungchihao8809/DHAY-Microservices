@@ -160,15 +160,15 @@ services:
     restart: on-failure
     depends_on:
       db-payment: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy } # Thêm cái này
-      core-service: { condition: service_started }      # Đợi Core sẵn sàng để Feign gọi
+      rabbitmq: { condition: service_healthy }
+      core-service: { condition: service_started }
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SERVER_PORT=8084
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db-payment:5432/hday_payment_db
       - SPRING_DATASOURCE_USERNAME=user_hday
       - SPRING_DATASOURCE_PASSWORD=password_hday
-      # Kết nối sang Core-service (Tên service trong docker là 'app')
+      # Kết nối sang Core-service
       - APP_SERVICES_CORE_URL=http://core-service:8080
       - APP_INTERNAL_API_KEY=hday_secret_2026
       # Kết nối RabbitMQ
@@ -176,7 +176,7 @@ services:
       - SPRING_RABBITMQ_PORT=5672
       - SPRING_RABBITMQ_USERNAME=guest
       - SPRING_RABBITMQ_PASSWORD=guest
-      # VNPay Config (Khớp với Strategy)
+      # VNPay Config
       - APP_PAYMENT_VNPAY_TMN_CODE=2QXUI4J4
       - APP_PAYMENT_VNPAY_SECRET_KEY=99999999999999999999999999999999
       - APP_PAYMENT_VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
@@ -223,7 +223,7 @@ services:
 
   # --- DISCOVERY SERVER (EUREKA) ---
   discovery-server:
-    build: ./discovery-server # Đường dẫn đến dự án Eureka của bạn
+    build: ./discovery-server
     container_name: hday-discovery
     restart: always
     environment:
@@ -237,14 +237,14 @@ services:
     networks:
       - hday-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8761/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # --- API GATEWAY ---
   dhay-gateway:
-    build: ./dhay-gateway # Đường dẫn đến dự án Spring Cloud Gateway
+    build: ./dhay-gateway
     container_name: hday-gateway
     restart: on-failure
     depends_on:
@@ -256,7 +256,7 @@ services:
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
     ports:
-      - "8000:8080" # Mobile sẽ gọi vào cổng 8000 thay cho 8080 cũ của core
+      - "8000:8080"
     networks:
       - hday-network
 
