@@ -24,16 +24,21 @@ public class CloudHeaderFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) 
             throws ServletException, IOException {
 
-        String gatewayKey = request.getHeader("X-Internal-Gateway-Key");
+        // THAY ĐỔI TẠI ĐÂY: Thử đọc cả 2 tên Header phổ biến
+        String gatewayKey = request.getHeader("X-Internal-Key");
+        if (gatewayKey == null) {
+            gatewayKey = request.getHeader("X-Internal-Gateway-Key");
+        }
         
-        // ÉP IN LOG RA TERMINAL (Dùng System.err để có màu nổi bật)
+        // Giữ nguyên log để kiểm tra
         System.err.println("===> CORE NHẬN KEY: [" + gatewayKey + "]");
         System.err.println("===> CONFIG KEY HIỆN TẠI: [" + internalApiKey + "]");
 
         if (gatewayKey == null || !gatewayKey.equals(internalApiKey)) {
-            System.err.println("===> XÁC THỰC GATEWAY THẤT BẠI!");
-            filterChain.doFilter(request, response);
-            return;
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\": \"Giao tiep noi bo bi tu choi!\"}");
+            return; 
         }
 
         // 2. Lấy thông tin User đã được Gateway xác thực

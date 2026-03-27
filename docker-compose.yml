@@ -1,5 +1,5 @@
 services:
-  # --- CORE DATABASE ---
+  # --- CORE DATABASE (PostGIS) ---
   db-core:
     image: postgis/postgis:16-3.4-alpine
     container_name: hday-db-core
@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: hday_core_db
       POSTGRES_USER: user_hday
       POSTGRES_PASSWORD: password_hday
-    ports:
-      - "5432:5432"
     networks:
       - hday-network
     volumes:
@@ -20,58 +18,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
 
-  # --- AI DATABASE ---
-  db-ai:
-    image: postgis/postgis:15-3.3
-    container_name: hday-db-ai
-    restart: always
-    environment:
-      TZ: Asia/Ho_Chi_Minh
-      POSTGRES_DB: hday_ai_db
-      POSTGRES_USER: ai_user
-      POSTGRES_PASSWORD: ai_password
-    ports:
-      - "5433:5432"
-    networks:
-      - hday-network
-    volumes:
-      - postgres_ai_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ai_user -d hday_ai_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  db-payment:
-    image: postgres:16-alpine # Payment không cần PostGIS, Postgres nhẹ là đủ
-    container_name: hday-db-payment
-    restart: always
-    environment:
-      TZ: Asia/Ho_Chi_Minh
-      POSTGRES_DB: hday_payment_db
-      POSTGRES_USER: user_hday
-      POSTGRES_PASSWORD: password_hday
-    ports:
-      - "5434:5432" # Ánh xạ ra ngoài máy thật port 5434
-    networks:
-      - hday-network
-    volumes:
-      - postgres_payment_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-d", "hday_payment_db", "-U", "user_hday"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # --- REDIS (Trạm trung chuyển) ---
+  # --- REDIS ---
   redis:
     image: redis:alpine
     container_name: hday-redis
     restart: always
-    ports:
-      - "6379:6379"
     networks:
       - hday-network
     healthcheck:
@@ -80,137 +32,11 @@ services:
       timeout: 3s
       retries: 5
 
-  # --- AI MATCHING SERVICE ---
-  ai-matching:
-    build: ./ai-matching-service
-    container_name: hday-ai-service
-    restart: always
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/hday_ai_db
-    ports:
-      - "50051:50051"
-    networks:
-      - hday-network
-    depends_on:
-      db-ai:
-        condition: service_healthy
-    command: python matching_service.py
-
-  # --- JAVA APP (CORE) ---
-  core-service:
-    build: ./core-service
-    container_name: hday-app
-    restart: on-failure
-    depends_on:
-      db-core:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      ai-matching:
-        condition: service_started
-      redis:
-        condition: service_healthy
-    environment:
-      - TZ=Asia/Ho_Chi_Minh
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
-      - SPRING_DATASOURCE_USERNAME=user_hday
-      - SPRING_DATASOURCE_PASSWORD=password_hday
-      - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-      - GRPC_CLIENT_AI_SERVICE_ADDRESS=static://ai-matching:50051
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_RABBITMQ_PORT=5672
-      - SPRING_RABBITMQ_USERNAME=guest
-      - SPRING_RABBITMQ_PASSWORD=guest
-      - APP_INTERNAL_API_KEY=hday_secret_2026
-      - APP_RABBITMQ_PAYMENT_SUCCESS_QUEUE=payment.success.queue
-      - APP_RABBITMQ_PAYMENT_EXCHANGE=payment.exchange
-      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - SPRING_APPLICATION_NAME=dhay-core-service
-      - INTERNAL_GATEWAY_KEY=dhay_secret_2026
-    # Core-service bây giờ không cần mount file firebase nữa
-    ports: !reset
-      - "8081:8080"
-    networks:
-      - hday-network
-
-  # --- NOTIFICATION SERVICE ---
-  notification-service:
-    build: ./notification-service
-    container_name: hday-notification
-    restart: on-failure
-    depends_on:
-      db-core:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - TZ=Asia/Ho_Chi_Minh
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
-      - SPRING_DATASOURCE_USERNAME=user_hday
-      - SPRING_DATASOURCE_PASSWORD=password_hday
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-    networks:
-      - hday-network
-
-  payment-service:
-    build: ./payment-service
-    container_name: hday-payment-app
-    restart: on-failure
-    depends_on:
-      db-payment: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
-      core-service: { condition: service_started }
-    environment:
-      - TZ=Asia/Ho_Chi_Minh
-      - SERVER_PORT=8084
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-payment:5432/hday_payment_db
-      - SPRING_DATASOURCE_USERNAME=user_hday
-      - SPRING_DATASOURCE_PASSWORD=password_hday
-      # Kết nối sang Core-service
-      - APP_SERVICES_CORE_URL=http://core-service:8080
-      - APP_INTERNAL_API_KEY=hday_secret_2026
-      # Kết nối RabbitMQ
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_RABBITMQ_PORT=5672
-      - SPRING_RABBITMQ_USERNAME=guest
-      - SPRING_RABBITMQ_PASSWORD=guest
-      # VNPay Config
-      - APP_PAYMENT_VNPAY_TMN_CODE=2QXUI4J4
-      - APP_PAYMENT_VNPAY_SECRET_KEY=99999999999999999999999999999999
-      - APP_PAYMENT_VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
-      - APP_PAYMENT_VNPAY_RETURN_URL=http://localhost:8084/api/v1/payments/vnpay-callback
-    ports:
-      - "8084:8084"
-    networks:
-      - hday-network
-
-  # --- PGADMIN ---
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: hday-pgadmin
-    restart: always
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "8888:80"
-    networks:
-      - hday-network
-    depends_on:
-      - db-core
-      - db-ai
-      - db-payment
-
+  # --- RABBITMQ ---
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: hday-rabbitmq
     restart: always
-    ports:
-      - "5672:5672"   # Cổng cho ứng dụng kết nối
-      - "15672:15672" # Cổng cho UI quản lý (truy cập localhost:15672)
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
@@ -230,7 +56,6 @@ services:
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SERVER_PORT=8761
-      # Eureka Server không cần tự đăng ký chính nó
       - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
       - EUREKA_CLIENT_FETCH_REGISTRY=false
     ports:
@@ -243,7 +68,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- API GATEWAY ---
+  # --- API GATEWAY (Cửa ngõ chính) ---
   dhay-gateway:
     build: ./dhay-gateway
     container_name: hday-gateway
@@ -258,7 +83,54 @@ services:
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
       - INTERNAL_GATEWAY_KEY=dhay_secret_2026
     ports:
-      - "8000:8080"
+      - "8000:8080" # User gọi vào cổng 8000
+    networks:
+      - hday-network
+
+  # --- CORE SERVICE (Logic chính) ---
+  dhay-core-service:
+    build: ./core-service
+    container_name: hday-core-app
+    restart: on-failure
+    depends_on:
+      db-core: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      discovery-server: { condition: service_healthy }
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - SPRING_APPLICATION_NAME=dhay-core-service
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
+      - SPRING_DATASOURCE_USERNAME=user_hday
+      - SPRING_DATASOURCE_PASSWORD=password_hday
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - INTERNAL_GATEWAY_KEY=dhay_secret_2026
+      - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    networks:
+      - hday-network
+
+  # --- AI MATCHING SERVICE ---
+  ai-matching:
+    build: ./ai-matching-service
+    container_name: hday-ai-service
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/hday_ai_db
+    networks:
+      - hday-network
+    command: python matching_service.py
+
+  # --- PGADMIN (Công cụ quản lý DB) ---
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: hday-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8888:80"
     networks:
       - hday-network
 
