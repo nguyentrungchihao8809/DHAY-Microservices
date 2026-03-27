@@ -17,25 +17,20 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<?> getMyInfo(@AuthenticationPrincipal UserPrincipal principal) {
-        // 1. Kiểm tra an toàn ban đầu
-        if (principal == null || principal.getUser() == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                .body(Map.of("message", "Phiên đăng nhập không hợp lệ"));
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token khong hop le");
         }
 
-        // 2. Dùng HashMap (Cho phép chứa giá trị null mà không gây crash)
         Map<String, Object> response = new java.util.HashMap<>();
-        
-        User userEntity = principal.getUser();
-
-        response.put("message", "Dữ liệu đã được lấy thành công");
         response.put("userId", principal.getUserId());
         response.put("identifier", principal.getUsername());
         
-        // Kiểm tra null từng trường một cách an toàn
-        response.put("fullName", userEntity.getFullName() != null ? userEntity.getFullName() : "Người dùng DHAY");
-        response.put("email", userEntity.getEmail()); // Nếu null trong DB thì trả về null trong JSON, không crash
-        response.put("avatarUrl", userEntity.getAvatarUrl());
+        // Kiểm tra xem object User có tồn tại trong Principal không
+        if (principal.getUser() != null) {
+            response.put("fullName", principal.getUser().getFullName());
+        } else {
+            response.put("fullName", "User entity is null");
+        }
 
         return ResponseEntity.ok(response);
     }

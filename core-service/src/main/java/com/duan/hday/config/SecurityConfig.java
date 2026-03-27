@@ -14,40 +14,19 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthFilter;
-    private final JwtAuthenticationEntryPoint jwtEntryPoint;
+    private final CloudHeaderFilter cloudHeaderFilter; 
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
-            .cors(cors -> cors.disable()) // Gateway đã xử lý CORS, tắt ở Core để tránh xung đột
+            .addFilterBefore(cloudHeaderFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
-                // Public các đường dẫn Swagger/OpenAPI
-                .requestMatchers(
-                    "/v3/api-docs/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/webjars/**",
-                    "/actuator/**"
-                ).permitAll()
-                
-                // Public các endpoint đăng ký/đăng nhập
                 .requestMatchers("/api/v1/auth/**").permitAll()
-                
-                // Public một số hệ thống (nếu cần)
-                .requestMatchers("/api/v1/system/**", "/api/v1/matching/trigger/**").permitAll()
-                .requestMatchers("/api/v1/devices/test-push").permitAll()
-
-                // Tất cả các request còn lại phải được xác thực bằng JWT
                 .anyRequest().authenticated()
             )
-            .sessionManagement(session -> session
-                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
-            .exceptionHandling(ex -> ex.authenticationEntryPoint(jwtEntryPoint));
-
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        
         return http.build();
     }
 }

@@ -128,6 +128,7 @@ services:
       - APP_RABBITMQ_PAYMENT_EXCHANGE=payment.exchange
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
       - SPRING_APPLICATION_NAME=dhay-core-service
+      - INTERNAL_GATEWAY_KEY=dhay_secret_2026
     # Core-service bây giờ không cần mount file firebase nữa
     ports: !reset
       - "8081:8080"
@@ -255,6 +256,7 @@ services:
       - SERVER_PORT=8080
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      - INTERNAL_GATEWAY_KEY=dhay_secret_2026
     ports:
       - "8000:8080"
     networks:
