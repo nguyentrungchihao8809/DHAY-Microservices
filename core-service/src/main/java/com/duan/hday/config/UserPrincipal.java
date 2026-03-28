@@ -35,7 +35,7 @@ public class UserPrincipal implements UserDetails {
         this.userId = userId;
         this.identifier = identifier;
         this.password = ""; // Không cần password ở tầng này vì Gateway đã validate xong
-        this.user = new User();   // Mặc định là null để tránh truy vấn DB không cần thiết
+        this.user = null;   // Mặc định là null để tránh truy vấn DB không cần thiết
     }
 
     /**

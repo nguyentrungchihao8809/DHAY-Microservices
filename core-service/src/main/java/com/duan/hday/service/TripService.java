@@ -2,6 +2,8 @@ package com.duan.hday.service;
 
 import com.duan.hday.dto.request.driver.TripCreateDTO;
 import com.duan.hday.dto.request.routes.TripConfirmRouteRequest;
+import com.duan.hday.dto.response.RecentTripResponseDTO;
+import com.duan.hday.dto.response.RouteOptionDTO;
 import com.duan.hday.entity.Location;
 import com.duan.hday.entity.Trip;
 import com.duan.hday.entity.User;
@@ -11,20 +13,24 @@ import com.duan.hday.entity.enums.TripStatus;
 import com.duan.hday.exception.AppException;
 import com.duan.hday.exception.ErrorCode;
 import com.duan.hday.integration.OsrmRouteDTO;
+import com.duan.hday.repository.auth.UserRepository;
 import com.duan.hday.repository.driver.VehicleRepository;
-import lombok.RequiredArgsConstructor;
-import java.time.LocalDateTime;
+import com.duan.hday.repository.trip.LocationRepository;
+import com.duan.hday.repository.trip.TripRepository;
+import com.duan.hday.grpc.client.MatchingClient;
+import com.duan.hday.util.GeometryUtils;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.duan.hday.repository.trip.TripRepository;
-import lombok.extern.slf4j.Slf4j;
+
+import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
-
-import com.duan.hday.dto.response.RecentTripResponseDTO;
-import com.duan.hday.dto.response.RouteOptionDTO;
-
-
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,131 +39,72 @@ public class TripService {
 
     private final TripRepository tripRepository;
     private final VehicleRepository vehicleRepository;
-    private final com.duan.hday.repository.trip.LocationRepository locationRepository;
+    private final LocationRepository locationRepository;
+    private final UserRepository userRepository;
     private final OsrmService osrmService;
     private final NotificationService notificationService;
-    private final com.duan.hday.grpc.client.MatchingClient matchingClient;
+    private final MatchingClient matchingClient;
 
     @Transactional
-    public void updateTripStatus(Long tripId, TripStatus newStatus, User driver) {
-        Trip trip = tripRepository.findById(tripId)
-                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
-
-        // 1. Kiểm tra quyền sở hữu
-        if (!trip.getDriver().getId().equals(driver.getId())) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        // 2. Validate logic chuyển trạng thái
-        validateStatusTransition(trip.getStatus(), newStatus);
-
-        // 3. Cập nhật trạng thái
-        trip.setStatus(newStatus);
-        Trip savedTrip = tripRepository.save(trip);
-
-        // 4. Bắn thông báo cho hành khách dựa trên trạng thái mới
-        if (savedTrip.getBookings() != null) {
-            savedTrip.getBookings().forEach(booking -> {
-                Long passengerId = booking.getPassenger().getId();
-                java.util.Map<String, String> data = java.util.Map.of(
-                    "tripId", tripId.toString(),
-                    "status", newStatus.name()
-                );
-
-                // Logic chọn mẫu thông báo dựa trên trạng thái mới
-                switch (newStatus) {
-                    case STARTED -> notificationService.sendTypedNotification(
-                            passengerId, NotificationType.TRIP_STARTED, data, trip.getEndLocation().getAddress());
-                    
-                    case COMPLETED -> notificationService.sendTypedNotification(
-                            passengerId, NotificationType.TRIP_COMPLETED, data);
-
-                    case CANCELED -> notificationService.sendTypedNotification(
-                            passengerId, NotificationType.TRIP_CANCELED, data, tripId.toString());
-                    
-                    default -> log.info("Không có thông báo đặc biệt cho trạng thái: {}", newStatus);
-                }
-            });
-        }
-
-        log.info("Trip {} status updated from {} to {}", tripId, trip.getStatus(), newStatus);
-    }
-    @Transactional
-    public Trip createTrip(TripCreateDTO dto, User driver) { // Nhận trực tiếp đối tượng User
-        
-        // 1. Tính toán thời gian (Logic Senior: Luôn có buffer hoặc duration từ Mapbox)
+    public Trip createTrip(TripCreateDTO dto, Long driverId) {
+        // 1. Tính toán thời gian dự kiến
         LocalDateTime startTime = dto.getDepartureTime();
-        // Giả sử cộng thêm 1 tiếng buffer cho an toàn, sau này dùng API Mapbox tính duration thực tế
         LocalDateTime estimatedEndTime = startTime.plusHours(1); 
 
-        // 2. Kiểm tra trùng lịch bằng Query tối ưu
+        // 2. Kiểm tra trùng lịch (Overlap) với Lock để tránh Race Condition
         boolean isOverlapping = tripRepository.existsOverlappingTripWithLock(
-            driver.getId(), 
-            0L, // ID giả vì trip chưa lưu
-            startTime, 
-            estimatedEndTime
+                driverId, 0L, startTime, estimatedEndTime
         );
 
         if (isOverlapping) {
             throw new AppException(ErrorCode.TRIP_OVERLAPPING);
         }
 
-        // 3. Kiểm tra xe và quyền sở hữu
+        // 3. Kiểm tra xe
         Vehicle vehicle = vehicleRepository.findById(dto.getVehicleId())
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy xe này"));
 
-        if (!vehicle.getDriver().getId().equals(driver.getId())) {
+        if (!vehicle.getDriver().getId().equals(driverId)) {
             throw new RuntimeException("Xe này không thuộc hồ sơ của bạn!");
         }
 
-        // 4. Tạo Trip bằng Builder
+        // 4. Lấy Proxy của User (Không query DB, chỉ lấy ID để làm khóa ngoại)
+        User driverProxy = userRepository.getReferenceById(driverId);
+
+        // 5. Tạo Trip
         Trip trip = Trip.builder()
-            .driver(driver)
-            .vehicle(vehicle)
-            .startLocation(buildLocation(dto.getStartAddress(), dto.getStartLat(), dto.getStartLng()))
-            .endLocation(buildLocation(dto.getEndAddress(), dto.getEndLat(), dto.getEndLng()))
-            .departureTime(startTime)
-            .estimatedArrivalTime(estimatedEndTime)
-            .totalSeats(dto.getTotalSeats())
-            .availableSeats(dto.getTotalSeats())
-            .status(TripStatus.OPEN)
-            .note(dto.getNote())
-            .build();
+                .driver(driverProxy)
+                .vehicle(vehicle)
+                .startLocation(buildLocation(dto.getStartAddress(), dto.getStartLat(), dto.getStartLng()))
+                .endLocation(buildLocation(dto.getEndAddress(), dto.getEndLat(), dto.getEndLng()))
+                .departureTime(startTime)
+                .estimatedArrivalTime(estimatedEndTime)
+                .totalSeats(dto.getTotalSeats())
+                .availableSeats(dto.getTotalSeats())
+                .status(TripStatus.OPEN)
+                .note(dto.getNote())
+                .build();
 
         return tripRepository.save(trip);
     }
 
-    private Location buildLocation(String address, Double lat, Double lng) {
-        return Location.builder().address(address).lat(lat).lng(lng).build();
-    }
-
-    @Transactional // Bắt buộc phải có để Lock có tác dụng
-    public Trip confirmRoute(Long tripId, TripConfirmRouteRequest dto, User driver) {
-        
-        // 1. Tìm Trip (Chưa cần khóa vội)
+    @Transactional
+    public Trip confirmRoute(Long tripId, TripConfirmRouteRequest dto, Long driverId) {
         Trip trip = tripRepository.findTripWithLocations(tripId)
                 .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
-        // 2. Kiểm tra Ownership (Phải là chủ mới được đi tiếp)
-        if (!trip.getDriver().getId().equals(driver.getId())) {
+        if (!trip.getDriver().getId().equals(driverId)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        // 3. CHECK OVERLAP VỚI LOCK
-        // Lúc này, nếu có request khác đang check cùng driverId, nó sẽ phải xếp hàng đợi ở đây.
         boolean isOverlapping = tripRepository.existsOverlappingTripWithLock(
-                driver.getId(),
-                tripId,
-                trip.getDepartureTime(),
-                dto.getEstimatedArrivalTime()
+                driverId, tripId, trip.getDepartureTime(), dto.getEstimatedArrivalTime()
         );
 
         if (isOverlapping) {
-            log.error("Race Condition Detect: Tài xế {} cố tình đặt lịch trùng!", driver.getId());
             throw new AppException(ErrorCode.TRIP_OVERLAPPING);
         }
 
-        // 4. Cập nhật dữ liệu
         trip.setRoutePolyline(dto.getPolyline());
         trip.setEstimatedArrivalTime(dto.getEstimatedArrivalTime());
         trip.setDistanceKm(dto.getDistanceKm());
@@ -165,47 +112,78 @@ public class TripService {
         trip.setRouteName(dto.getRouteName() != null ? dto.getRouteName() : "Lộ trình không tên");
         trip.setStatus(TripStatus.OPEN); 
 
-        // 5. Lưu vào DB Core
         Trip savedTrip = tripRepository.save(trip);
         
-        // 6. ĐỒNG BỘ SANG AI (Sửa lỗi gọi tại đây)
-        // Gọi thông qua bean matchingClient đã được inject ở trên đầu class
+        // Đồng bộ sang AI Service qua gRPC
         matchingClient.syncDriverTripToAI(savedTrip);
         
         return savedTrip;
     }
 
+    @Transactional
+    public void updateTripStatus(Long tripId, TripStatus newStatus, Long driverId) {
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
+
+        if (!trip.getDriver().getId().equals(driverId)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        validateStatusTransition(trip.getStatus(), newStatus);
+
+        trip.setStatus(newStatus);
+        Trip savedTrip = tripRepository.save(trip);
+
+        // Bắn thông báo cho hành khách
+        if (savedTrip.getBookings() != null) {
+            savedTrip.getBookings().forEach(booking -> {
+                Long passengerId = booking.getPassenger().getId();
+                Map<String, String> data = Map.of(
+                    "tripId", tripId.toString(),
+                    "status", newStatus.name()
+                );
+
+                switch (newStatus) {
+                    case STARTED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_STARTED, data, trip.getEndLocation().getAddress());
+                    case COMPLETED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_COMPLETED, data);
+                    case CANCELED -> notificationService.sendTypedNotification(
+                            passengerId, NotificationType.TRIP_CANCELED, data, tripId.toString());
+                    default -> log.debug("No notification for status: {}", newStatus);
+                }
+            });
+        }
+    }
+
     public List<RouteOptionDTO> handleHotspotsAndRanking(Trip trip, List<OsrmRouteDTO> osrmRoutes) {
-    if (osrmRoutes == null || osrmRoutes.isEmpty()) return java.util.Collections.emptyList();
+        if (osrmRoutes == null || osrmRoutes.isEmpty()) return Collections.emptyList();
 
-    LocalDateTime windowStart = trip.getDepartureTime().minusMinutes(30);
-    LocalDateTime windowEnd = trip.getDepartureTime().plusMinutes(30);
+        LocalDateTime windowStart = trip.getDepartureTime().minusMinutes(30);
+        LocalDateTime windowEnd = trip.getDepartureTime().plusMinutes(30);
 
-    // BƯỚC 1: Xử lý dữ liệu và gán vào biến routeOptions
-    List<RouteOptionDTO> routeOptions = osrmRoutes.stream()
-        .<RouteOptionDTO>map(route -> { 
-            String wkt = com.duan.hday.util.GeometryUtils.castPolylineToWkt(route.getGeometry());
-            int passengers = locationRepository.countPotentialPassengersAlongRoute(wkt, windowStart, windowEnd);
+        List<RouteOptionDTO> routeOptions = osrmRoutes.stream()
+            .map(route -> { 
+                String wkt = GeometryUtils.castPolylineToWkt(route.getGeometry());
+                int passengers = locationRepository.countPotentialPassengersAlongRoute(wkt, windowStart, windowEnd);
 
-            long durationMins = Math.round(route.getDuration() / 40.0);
-            LocalDateTime eta = trip.getDepartureTime().plusMinutes(durationMins);
+                long durationMins = Math.round(route.getDuration() / 60.0); // OSRM trả về giây, chia 60 ra phút
+                LocalDateTime eta = trip.getDepartureTime().plusMinutes(durationMins);
 
-            return RouteOptionDTO.builder()
-                    .polyline(route.getGeometry())
-                    .distanceKm(Math.round((route.getDistance() / 1000.0) * 100.0) / 100.0)
-                    .durationMinutes(durationMins) // Gán giá trị này
-                    .estimatedArrivalTime(eta)
-                    .routeName("Qua " + osrmService.findMainStreetName(route))
-                    .potentialPassengers(passengers)
-                    .build();
-        })
-        // BƯỚC 2: Sắp xếp
-        .sorted(java.util.Comparator
-                .comparing(RouteOptionDTO::getPotentialPassengers).reversed()
-                .thenComparing(RouteOptionDTO::getDistanceKm))
-        .collect(java.util.stream.Collectors.toList());
+                return RouteOptionDTO.builder()
+                        .polyline(route.getGeometry())
+                        .distanceKm(Math.round((route.getDistance() / 1000.0) * 100.0) / 100.0)
+                        .durationMinutes(durationMins)
+                        .estimatedArrivalTime(eta)
+                        .routeName("Qua " + osrmService.findMainStreetName(route))
+                        .potentialPassengers(passengers)
+                        .build();
+            })
+            .sorted(java.util.Comparator
+                    .comparing(RouteOptionDTO::getPotentialPassengers).reversed()
+                    .thenComparing(RouteOptionDTO::getDistanceKm))
+            .collect(Collectors.toList());
 
-        // BƯỚC 3: Bây giờ biến routeOptions đã tồn tại, ta có thể duyệt để gán Rank
         for (int i = 0; i < routeOptions.size(); i++) {
             RouteOptionDTO dto = routeOptions.get(i);
             dto.setRank(i + 1);
@@ -216,92 +194,9 @@ public class TripService {
 
         return routeOptions;
     }
-    // Trong TripService.java
 
-        @Transactional
-        public void startTrip(Long tripId, User driver) {
-            // Chỉ đơn giản là gọi lại hàm update đã có sẵn để phát Event
-            updateTripStatus(tripId, TripStatus.STARTED, driver);
-            log.info("Driver {} started trip {}", driver.getId(), tripId);
-        }
-
-        @Transactional
-        public void completeTrip(Long tripId, User driver) {
-            updateTripStatus(tripId, TripStatus.COMPLETED, driver);
-            log.info("Driver {} completed trip {}", driver.getId(), tripId);
-        }
-
-        @Transactional
-        public Trip updateTrip(Long tripId, TripCreateDTO dto, User driver) {
-            // 1. Tìm trip và kiểm tra quyền sở hữu
-            Trip trip = tripRepository.findById(tripId)
-                    .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
-
-            if (!trip.getDriver().getId().equals(driver.getId())) {
-                throw new AppException(ErrorCode.ACCESS_DENIED);
-            }
-
-            // 2. Kiểm tra trạng thái: Chỉ cho phép sửa khi chưa bắt đầu/hủy/hoàn thành
-            if (trip.getStatus() != TripStatus.OPEN && trip.getStatus() != TripStatus.FULL) {
-                throw new RuntimeException("Không thể chỉnh sửa chuyến đi ở trạng thái: " + trip.getStatus().getLabel());
-            }
-
-            // 3. Kiểm tra trùng lịch (Overlap) nếu có thay đổi thời gian
-            LocalDateTime newStartTime = dto.getDepartureTime();
-            LocalDateTime newEndTime = newStartTime.plusHours(1); // Buffer tạm thời 1h
-
-            boolean isOverlapping = tripRepository.existsOverlappingTripWithLock(
-                    driver.getId(),
-                    tripId, // Truyền ID hiện tại để loại trừ chính nó trong query check
-                    newStartTime,
-                    newEndTime
-            );
-
-            if (isOverlapping) {
-                throw new AppException(ErrorCode.TRIP_OVERLAPPING);
-            }
-
-            // 4. Cập nhật thông tin cơ bản
-            trip.setDepartureTime(newStartTime);
-            trip.setNote(dto.getNote());
-            
-            // Nếu thay đổi số chỗ ngồi: kiểm tra xem số chỗ mới có ít hơn số khách đã đặt không
-            if (dto.getTotalSeats() < (trip.getTotalSeats() - trip.getAvailableSeats())) {
-                throw new RuntimeException("Số chỗ mới không thể ít hơn số hành khách đã đặt chỗ!");
-            }
-            
-            int bookedSeats = trip.getTotalSeats() - trip.getAvailableSeats();
-            trip.setTotalSeats(dto.getTotalSeats());
-            trip.setAvailableSeats(dto.getTotalSeats() - bookedSeats);
-
-            // 5. Cập nhật lại trạng thái OPEN/FULL dựa trên số chỗ mới
-            if (trip.getAvailableSeats() == 0) {
-                trip.setStatus(TripStatus.FULL);
-            } else {
-                trip.setStatus(TripStatus.OPEN);
-            }
-
-            // Lưu ý: Nếu thay đổi Start/End Lat-Lng, FE nên gọi lại quy trình gợi ý Route (Osrm)
-            // Ở đây ta cập nhật Location cơ bản
-            updateLocation(trip.getStartLocation(), dto.getStartAddress(), dto.getStartLat(), dto.getStartLng());
-            updateLocation(trip.getEndLocation(), dto.getEndAddress(), dto.getEndLat(), dto.getEndLng());
-
-            log.info("Driver {} updated trip {}", driver.getId(), tripId);
-            return tripRepository.save(trip);
-        }
-
-        private void updateLocation(Location loc, String address, Double lat, Double lng) {
-            loc.setAddress(address);
-            loc.setLat(lat);
-            loc.setLng(lng);
-            locationRepository.save(loc);
-        }
-
-
-    public List<RecentTripResponseDTO> getRecentTrips(User driver) {
-    // Sử dụng PageRequest để giới hạn 4 bản ghi
-        var pageable = org.springframework.data.domain.PageRequest.of(0, 4);
-        List<Trip> trips = tripRepository.findTop4ByDriverIdOrderByCreatedAt(driver.getId(), pageable);
+    public List<RecentTripResponseDTO> getRecentTrips(Long driverId) {
+        List<Trip> trips = tripRepository.findTop4ByDriverIdOrderByCreatedAt(driverId, PageRequest.of(0, 4));
 
         return trips.stream()
                 .map(trip -> RecentTripResponseDTO.builder()
@@ -311,20 +206,22 @@ public class TripService {
                         .startAddress(trip.getStartLocation().getAddress())
                         .endAddress(trip.getEndLocation().getAddress())
                         .build())
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
     }
-    // Thêm hàm này vào bên trong class TripService
+
+    private Location buildLocation(String address, Double lat, Double lng) {
+        return Location.builder().address(address).lat(lat).lng(lng).build();
+    }
+
     private void validateStatusTransition(TripStatus current, TripStatus next) {
         if (current == TripStatus.COMPLETED || current == TripStatus.CANCELED) {
-            throw new RuntimeException("Chuyến đi đã kết thúc, không thể thay đổi trạng thái nữa.");
+            throw new RuntimeException("Chuyến đi đã kết thúc.");
         }
-
         if (next == TripStatus.STARTED && (current != TripStatus.OPEN && current != TripStatus.FULL)) {
-            throw new RuntimeException("Chuyến đi chỉ có thể bắt đầu khi đang ở trạng thái OPEN hoặc FULL.");
+            throw new RuntimeException("Chuyến đi phải ở trạng thái OPEN hoặc FULL để bắt đầu.");
         }
-
         if (next == TripStatus.COMPLETED && current != TripStatus.STARTED) {
-            throw new RuntimeException("Bạn phải bắt đầu chuyến đi trước khi xác nhận hoàn thành.");
+            throw new RuntimeException("Phải bắt đầu chuyến đi trước khi hoàn thành.");
         }
     }
 }

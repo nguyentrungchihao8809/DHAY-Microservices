@@ -7,9 +7,8 @@ import com.duan.hday.service.PassengerTripService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import com.duan.hday.config.UserPrincipal;
 
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/passengers")
@@ -17,54 +16,70 @@ import com.duan.hday.config.UserPrincipal;
 public class PassengerController {
 
     private final PassengerTripService passengerTripService;
-    private final PassengerTripService tripService;
 
+    // Tên Header thống nhất toàn hệ thống
+    private static final String USER_ID_HEADER = "X-User-Id";
+
+    /**
+     * BƯỚC 1: Ước tính giá dựa trên tọa độ (Không cần Auth nếu muốn)
+     */
     @PostMapping("/estimate")
     public ResponseEntity<PriceEstimationResponse> getEstimation(
             @RequestBody LocationRequestDTO locationDto) {
         
-        PriceEstimationResponse response = tripService.estimateTripPrice(
-            locationDto.getStartLat(), 
-            locationDto.getStartLng(), 
-            locationDto.getEndLat(), 
-            locationDto.getEndLng()
+        PriceEstimationResponse response = passengerTripService.estimateTripPrice(
+                locationDto.getStartLat(), 
+                locationDto.getStartLng(), 
+                locationDto.getEndLat(), 
+                locationDto.getEndLng()
         );
         return ResponseEntity.ok(response);
     }
 
     /**
- * BƯỚC 2: Đặt xe chính thức
- */
+     * BƯỚC 2: Đặt xe chính thức (Gửi request lên hệ thống)
+     */
     @PostMapping("/requests")
-    public ResponseEntity<String> createRequest(
+    public ResponseEntity<?> createRequest(
             @RequestBody PassengerTripRequestDTO dto, 
-            @AuthenticationPrincipal UserPrincipal principal) { // Đổi User thành UserPrincipal
+            @RequestHeader(USER_ID_HEADER) Long passengerId) {
         
-        // Kiểm tra an toàn
-        if (principal == null || principal.getUser() == null) {
-            return ResponseEntity.status(401).body("Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại!");
-        }
-
-        // Truyền principal.getUser() vào service
-        tripService.processTripRequest(dto, principal.getUser());
+        // Thực thi nghiệp vụ đặt xe
+        passengerTripService.processTripRequest(dto, passengerId);
         
-        return ResponseEntity.ok("Yêu cầu đặt xe đã được ghi nhận!");
+        return ResponseEntity.ok(Map.of(
+            "message", "Yêu cầu đặt xe đã được ghi nhận! Đang tìm tài xế phù hợp..."
+        ));
     }
 
+    /**
+     * Hủy yêu cầu đặt xe
+     */
     @PatchMapping("/requests/{id}/cancel")
-    public ResponseEntity<String> cancelRequest(
+    public ResponseEntity<?> cancelRequest(
             @PathVariable Long id,
-            @AuthenticationPrincipal UserPrincipal principal
+            @RequestHeader(USER_ID_HEADER) Long passengerId
     ) {
-        passengerTripService.cancelTripRequest(id, principal.getUser());
-        return ResponseEntity.ok("Yêu cầu chuyến đi đã được hủy thành công.");
+        passengerTripService.cancelTripRequest(id, passengerId);
+        
+        return ResponseEntity.ok(Map.of(
+            "message", "Yêu cầu chuyến đi đã được hủy thành công."
+        ));
     }
 
-    @GetMapping("/requests/estimate-price")
-    public ResponseEntity<PriceEstimationResponse> estimatePrice(
-            @RequestParam Double sLat, @RequestParam Double sLng,
-            @RequestParam Double eLat, @RequestParam Double eLng
+    /**
+     * Cập nhật yêu cầu (Thay đổi điểm đón/trả/số ghế khi đang chờ)
+     */
+    @PutMapping("/requests/{id}")
+    public ResponseEntity<?> updateRequest(
+            @PathVariable Long id,
+            @RequestBody PassengerTripRequestDTO dto,
+            @RequestHeader(USER_ID_HEADER) Long passengerId
     ) {
-        return ResponseEntity.ok(passengerTripService.estimateTripPrice(sLat, sLng, eLat, eLng));
+        passengerTripService.updateTripRequest(id, dto, passengerId);
+        
+        return ResponseEntity.ok(Map.of(
+            "message", "Cập nhật yêu cầu thành công!"
+        ));
     }
 }

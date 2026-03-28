@@ -47,31 +47,40 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
                 String token = authHeader.substring(7);
 
                 try {
-                    // Xác thực và trích xuất thông tin từ JWT
                     jwtUtils.validateToken(token);
                     Claims claims = jwtUtils.getAllClaimsFromToken(token);
                     
-                    identifierHeader = claims.getSubject();
-                    Object userIdObj = claims.get("userId");
-                    userIdHeader = (userIdObj != null) ? String.valueOf(userIdObj) : "UNKNOWN";
+                    // 1. Thường thì ID người dùng nằm ở Subject (Identifier)
+                    identifierHeader = claims.getSubject(); 
+                    
+                    // 2. Kiểm tra xem ID nằm ở Subject hay Claim "userId"
+                    // Nếu identifierHeader là con số (ID), hãy gán nó cho userIdHeader
+                    if (identifierHeader != null) {
+                        userIdHeader = identifierHeader; 
+                    } else {
+                        Object userIdObj = claims.get("userId");
+                        userIdHeader = (userIdObj != null) ? String.valueOf(userIdObj) : "UNKNOWN";
+                    }
 
                 } catch (Exception e) {
                     throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token expired or invalid");
                 }
             }
 
-            // 2. MUTATION: Tạo request mới mang đầy đủ Header bảo mật nội bộ
-            // Chú ý: Tên Header phải là X-Internal-Cloud-Key để khớp với Core Service
+           // 2. MUTATION: Tạo request mới
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
+                    // Xóa header cũ nếu Client cố tình gửi lên để tránh ghi đè sai
+                    .headers(h -> h.remove("X-Internal-Key")) 
                     .header("X-Internal-Key", INTERNAL_CLOUD_KEY)
                     .header("X-User-Id", userIdHeader)
                     .header("X-User-Identifier", identifierHeader)
                     .build();
 
-            // 3. Chuyển tiếp request đã được "tiêm" Header xuống Microservices bên dưới
             return chain.filter(exchange.mutate().request(modifiedRequest).build());
         });
     }
+
+    
 
     public static class Config {
         // Cấu hình thêm nếu cần

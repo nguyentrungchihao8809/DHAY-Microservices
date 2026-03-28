@@ -3,18 +3,17 @@ package com.duan.hday.service;
 import com.duan.hday.entity.*;
 import com.duan.hday.entity.enums.*;
 import com.duan.hday.exception.AppException;
+import com.duan.hday.exception.ErrorCode;
+import com.duan.hday.repository.auth.UserRepository;
 import com.duan.hday.repository.passenger.BookingRepository;
 import com.duan.hday.repository.passenger.PassengerTripRequestRepository;
 import com.duan.hday.repository.trip.TripRepository;
-import com.duan.hday.util.GeometryUtils;
 
 import lombok.RequiredArgsConstructor;
-
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.locationtech.jts.geom.LineString;
-import lombok.extern.slf4j.Slf4j;
-import com.duan.hday.exception.ErrorCode;
+
 import java.util.Map;
 
 @Service
@@ -25,49 +24,48 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final TripRepository tripRepository;
     private final PassengerTripRequestRepository requestRepository;
+    private final UserRepository userRepository;
     private final NotificationService notificationService;
+
+    /**
+     * Tài xế chấp nhận yêu cầu của khách
+     * @param tripId: ID chuyến đi của tài xế
+     * @param requestId: ID yêu cầu của khách
+     * @param driverId: ID tài xế thực hiện thao tác (lấy từ Gateway)
+     */
     @Transactional
-    public Booking confirmPassenger(Long tripId, Long requestId, User currentUser) {
-        // 1. Tìm Trip
+    public Booking confirmPassenger(Long tripId, Long requestId, Long driverId) {
+        // 1. Tìm Trip và kiểm tra quyền sở hữu
         Trip trip = tripRepository.findById(tripId)
                 .orElseThrow(() -> new AppException(ErrorCode.TRIP_NOT_FOUND));
 
-        // DEBUG: Em thêm dòng log này để kiểm tra giá trị thực tế ở console
-        log.info("Check Permission - Trip Driver ID: {}, Current User ID: {}", 
-                trip.getDriver().getId(), currentUser.getId());
-
-        // 2. Kiểm tra quyền sở hữu
-        // Sử dụng Long.valueOf hoặc so sánh trực tiếp nhưng đảm bảo không null
-        if (trip.getDriver() == null || !trip.getDriver().getId().equals(currentUser.getId())) {
+        if (!trip.getDriver().getId().equals(driverId)) {
             throw new AppException(ErrorCode.UNAUTHORIZED_ACTION);
         }
 
-        // 3. Tìm yêu cầu của khách
+        // 2. Tìm yêu cầu của khách
         PassengerTripRequest pRequest = requestRepository.findById(requestId)
-                .orElse(null);
+                .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
 
-        if (pRequest == null) {
-            // Kiểm tra xem có phải khách này đã có Booking cho Trip này rồi không (trường hợp gọi lần 2)
-            return bookingRepository.findByTripIdAndPassengerId(tripId, requestId) // Cần logic check lại
-                    .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
-        }
-
-        // Nếu yêu cầu không còn ở trạng thái WAITING
-        if (pRequest.getStatus() != RequestStatus.WAITING) {
-            // Nếu đã MATCHED với đúng Trip này rồi thì trả về Booking hiện tại luôn (Idempotent)
-            if (pRequest.getStatus() == RequestStatus.MATCHED && pRequest.getMatchedTrip().getId().equals(tripId)) {
-                return bookingRepository.findByTripAndPassenger(trip, pRequest.getPassenger())
+        // 3. Xử lý Idempotent (Nếu khách đã được confirm vào trip này rồi thì trả về luôn)
+        if (pRequest.getStatus() == RequestStatus.MATCHED) {
+            if (pRequest.getMatchedTrip().getId().equals(tripId)) {
+                return bookingRepository.findByTripIdAndPassengerId(tripId, pRequest.getPassenger().getId())
                         .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
             }
-            throw new AppException(ErrorCode.VALIDATION_ERROR); // Yêu cầu đã bị hủy hoặc khớp với trip khác
+            throw new AppException(ErrorCode.VALIDATION_ERROR); // Khách đã thuộc về trip khác
         }
 
-        // 4. Kiểm tra số ghế trống
+        // 4. Kiểm tra trạng thái và số ghế
+        if (pRequest.getStatus() != RequestStatus.WAITING) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+
         if (trip.getAvailableSeats() < pRequest.getSeatsRequested()) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR); // "Hết chỗ" - Em có thể thêm code TRIP_FULL
+            throw new RuntimeException("Chuyến đi không còn đủ ghế trống!");
         }
 
-        // --- LOGIC XỬ LÝ ---
+        // 5. Tạo Booking & Cập nhật trạng thái
         Booking booking = Booking.builder()
                 .trip(trip)
                 .passenger(pRequest.getPassenger())
@@ -77,80 +75,84 @@ public class BookingService {
 
         pRequest.setStatus(RequestStatus.MATCHED);
         pRequest.setMatchedTrip(trip);
+        
+        // Cập nhật số ghế trống
         trip.setAvailableSeats(trip.getAvailableSeats() - pRequest.getSeatsRequested());
+        if (trip.getAvailableSeats() == 0) {
+            trip.setStatus(TripStatus.FULL);
+        }
 
         Booking savedBooking = bookingRepository.save(booking);
-        // --- GỬI THÔNG BÁO CHO KHÁCH HÀNG ---
-        Map<String, String> data = Map.of(
-            "bookingId", savedBooking.getId().toString(),
-            "tripId", tripId.toString(),
-            "type", "BOOKING_CONFIRMED"
-        );
+        tripRepository.save(trip); // Lưu lại trạng thái Trip
 
-        notificationService.sendTypedNotification(
-            savedBooking.getPassenger().getId(), 
-            NotificationType.BOOKING_CONFIRMED, 
-            data, 
-            trip.getDriver().getFullName() // Truyền vào %s trong template
-        );
+        // 6. Gửi thông báo cho khách hàng
+        notifyPassenger(savedBooking, trip, NotificationType.BOOKING_CONFIRMED);
 
         return savedBooking;
     }
 
+    /**
+     * Tài xế từ chối/hủy yêu cầu của khách
+     */
     @Transactional
-    public void rejectPassenger(Long requestId, User driver) {
+    public void rejectPassenger(Long requestId, Long driverId) {
         PassengerTripRequest pRequest = requestRepository.findById(requestId)
-                .orElseThrow(() -> new RuntimeException("Request not found"));
+                .orElseThrow(() -> new RuntimeException("Request không tồn tại"));
 
+        // Logic check driverId ở đây có thể cần thông qua TripId nếu request đã matched
+        // Hoặc đơn giản là tài xế bấm "Bỏ qua" trên danh sách gợi ý.
+        
         pRequest.setStatus(RequestStatus.CANCELED);
         requestRepository.save(pRequest);
 
-        // --- GỬI THÔNG BÁO CHO KHÁCH HÀNG ---
-        Map<String, String> data = Map.of(
-            "requestId", requestId.toString(),
-            "type", "BOOKING_REJECTED"
-        );
+        // Lấy Proxy Driver để lấy thông tin tên gửi thông báo
+        User driverProxy = userRepository.findById(driverId).orElse(null);
+        String driverName = (driverProxy != null) ? driverProxy.getFullName() : "Tài xế";
 
         notificationService.sendTypedNotification(
             pRequest.getPassenger().getId(), 
             NotificationType.BOOKING_REJECTED, 
-            data, 
-            driver.getFullName() // Truyền vào %s trong template
+            Map.of("requestId", requestId.toString(), "type", "BOOKING_REJECTED"), 
+            driverName
         );
     }
+
+    /**
+     * Hoàn lại ghế khi booking bị hủy hoặc kết thúc
+     */
     @Transactional
     public void releaseSeats(Booking booking) {
         Trip trip = booking.getTrip();
         if (trip == null) return;
 
-        // 1. Lấy Polyline của chuyến đi để xác định các phân đoạn (Segments)
-        LineString routeLine = (LineString) GeometryUtils.wktToGeometry(
-                GeometryUtils.castPolylineToWkt(trip.getRoutePolyline())
-        );
+        // Hoàn ghế
+        trip.setAvailableSeats(trip.getAvailableSeats() + booking.getSeatsBooked());
+        
+        // Mở lại trạng thái nếu đang Full
+        if (trip.getStatus() == TripStatus.FULL) {
+            trip.setStatus(TripStatus.OPEN);
+        }
+        
+        tripRepository.save(trip);
+        log.info("Released {} seats for Trip ID {}", booking.getSeatsBooked(), trip.getId());
+    }
 
-        // 2. Tìm lại điểm đón/trả của khách trên lộ trình tài xế
-        // để tránh phải query ngược lại PassengerTripRequest
-        PassengerTripRequest pReq = requestRepository.findByPassengerAndMatchedTrip(booking.getPassenger(), trip)
-                .orElse(null);
+    private void notifyPassenger(Booking booking, Trip trip, NotificationType type) {
+        try {
+            Map<String, String> data = Map.of(
+                "bookingId", booking.getId().toString(),
+                "tripId", trip.getId().toString(),
+                "type", type.name()
+            );
 
-        if (pReq != null) {
-            int startIdx = GeometryUtils.findNearestPointIndex(routeLine, pReq.getStartLocation().getGeom());
-            int endIdx = GeometryUtils.findNearestPointIndex(routeLine, pReq.getEndLocation().getGeom());
-
-            // 3. Logic Senior: Cập nhật lại số ghế trống cho Trip
-            // Trong mô hình đơn giản: availableSeats là số ghế trống tối thiểu trên toàn hành trình
-            // Trong mô hình Segment: Chúng ta cần tính toán lại dựa trên các booking còn lại.
-            
-            trip.setAvailableSeats(trip.getAvailableSeats() + booking.getSeatsBooked());
-            
-            // Nếu trước đó Trip bị FULL, giờ có chỗ thì mở lại status OPEN
-            if (trip.getStatus() == TripStatus.FULL) {
-                trip.setStatus(TripStatus.OPEN);
-            }
-            
-            tripRepository.save(trip);
-            log.info("Released {} seats for Trip {} from segment {} to {}", 
-                    booking.getSeatsBooked(), trip.getId(), startIdx, endIdx);
+            notificationService.sendTypedNotification(
+                booking.getPassenger().getId(), 
+                type, 
+                data, 
+                trip.getDriver().getFullName()
+            );
+        } catch (Exception e) {
+            log.error("Lỗi gửi thông báo Booking: {}", e.getMessage());
         }
     }
 }

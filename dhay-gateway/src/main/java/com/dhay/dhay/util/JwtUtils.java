@@ -34,4 +34,14 @@ public class JwtUtils {
                 .build()
                 .parseSignedClaims(token);
     }
+
+    // Thêm hàm này vào class JwtUtils.java của bạn
+    public String generateToken(String userId) {
+        return Jwts.builder()
+                .subject(userId)
+                .issuedAt(new java.util.Date())
+                .expiration(new java.util.Date(System.currentTimeMillis() + 86400000)) // 1 ngày
+                .signWith(getSigningKey())
+                .compact();
+    }
 }
