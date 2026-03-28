@@ -16,8 +16,7 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     private final RouteValidator validator;
     private final JwtUtils jwtUtils;
 
-    // KEY NÀY PHẢI KHỚP 100% VỚI GIÁ TRỊ TRONG LOG CORE SERVICE: "hday_secret_2026"
-    private static final String INTERNAL_CLOUD_KEY = "hday_secret_2026";
+    private static final String INTERNAL_CLOUD_KEY = "dhay_secret_2026";
 
     public AuthenticationFilter(RouteValidator validator, JwtUtils jwtUtils) {
         super(Config.class);
@@ -64,7 +63,7 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
             // 2. MUTATION: Tạo request mới mang đầy đủ Header bảo mật nội bộ
             // Chú ý: Tên Header phải là X-Internal-Cloud-Key để khớp với Core Service
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
-                    .header("X-Internal-Cloud-Key", INTERNAL_CLOUD_KEY)
+                    .header("X-Internal-Key", INTERNAL_CLOUD_KEY)
                     .header("X-User-Id", userIdHeader)
                     .header("X-User-Identifier", identifierHeader)
                     .build();

@@ -26,9 +26,6 @@ public class CloudHeaderFilter extends OncePerRequestFilter {
 
         // THAY ĐỔI TẠI ĐÂY: Thử đọc cả 2 tên Header phổ biến
         String gatewayKey = request.getHeader("X-Internal-Key");
-        if (gatewayKey == null) {
-            gatewayKey = request.getHeader("X-Internal-Gateway-Key");
-        }
         
         // Giữ nguyên log để kiểm tra
         System.err.println("===> CORE NHẬN KEY: [" + gatewayKey + "]");
@@ -42,6 +39,7 @@ public class CloudHeaderFilter extends OncePerRequestFilter {
         }
 
         // 2. Lấy thông tin User đã được Gateway xác thực
+        // 2. Lấy thông tin User đã được Gateway xác thực
         String userIdStr = request.getHeader("X-User-Id");
         String identifier = request.getHeader("X-User-Identifier");
 
@@ -50,7 +48,20 @@ public class CloudHeaderFilter extends OncePerRequestFilter {
         System.out.println(">>> Core Service nhan duoc Identifier: " + identifier);
 
         if (userIdStr != null && identifier != null) {
-            UserPrincipal principal = new UserPrincipal(Long.parseLong(userIdStr), identifier);
+            Long userId;
+            
+            // KIỂM TRA: Nếu là khách (GUEST) thì gán ID tạm là -1, nếu không thì mới parse số
+            if ("GUEST".equalsIgnoreCase(userIdStr)) {
+                userId = -1L; 
+            } else {
+                try {
+                    userId = Long.parseLong(userIdStr);
+                } catch (NumberFormatException e) {
+                    userId = -1L; // Đề phòng lỗi định dạng khác
+                }
+            }
+
+            UserPrincipal principal = new UserPrincipal(userId, identifier);
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     principal, null, Collections.emptyList()

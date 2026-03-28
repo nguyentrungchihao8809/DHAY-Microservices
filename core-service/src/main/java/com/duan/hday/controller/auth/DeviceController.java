@@ -14,7 +14,6 @@ import com.duan.hday.config.UserPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import com.duan.hday.service.NotificationService;
 import com.duan.hday.dto.request.notification.NotificationTestRequest;
-import com.duan.hday.entity.enums.NotificationType;
 
 
 @RestController

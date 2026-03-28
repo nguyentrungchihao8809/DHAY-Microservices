@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@localhost:5432/hday_ai_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@localhost:5432/dhay_ai_db")
 
 # Tạo engine
 engine = create_engine(DATABASE_URL)
@@ -42,10 +42,10 @@ def init_db():
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
                 conn.commit()
             Base.metadata.create_all(bind=engine)
-            print("✅ Database AI đã được khởi tạo thành công!")
+            print("Database AI đã được khởi tạo thành công!")
             break
         except Exception as e:
-            print(f"⚠️ Đang chờ Database... ({retries})")
+            print(f"Đang chờ Database... ({retries})")
             retries -= 1
             time.sleep(5)
 

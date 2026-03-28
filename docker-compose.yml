@@ -2,19 +2,19 @@ services:
   # --- CORE DATABASE (PostGIS) ---
   db-core:
     image: postgis/postgis:16-3.4-alpine
-    container_name: hday-db-core
+    container_name: dhay-db-core
     restart: always
     environment:
       TZ: Asia/Ho_Chi_Minh
-      POSTGRES_DB: hday_core_db
-      POSTGRES_USER: user_hday
-      POSTGRES_PASSWORD: password_hday
+      POSTGRES_DB: dhay_core_db
+      POSTGRES_USER: user_dhay  
+      POSTGRES_PASSWORD: password_dhay
     networks:
-      - hday-network
+      - dhay-network
     volumes:
       - postgres_core_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-d", "hday_core_db", "-U", "user_hday"]
+      test: ["CMD", "pg_isready", "-q", "-d", "dhay_core_db", "-U", "user_dhay"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,10 +22,10 @@ services:
   # --- REDIS ---
   redis:
     image: redis:alpine
-    container_name: hday-redis
+    container_name: dhay-redis
     restart: always
     networks:
-      - hday-network
+      - dhay-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,13 +35,13 @@ services:
   # --- RABBITMQ ---
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: hday-rabbitmq
+    container_name: dhay-rabbitmq
     restart: always
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
     networks:
-      - hday-network
+      - dhay-network
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -51,7 +51,7 @@ services:
   # --- DISCOVERY SERVER (EUREKA) ---
   discovery-server:
     build: ./discovery-server
-    container_name: hday-discovery
+    container_name: dhay-discovery
     restart: always
     environment:
       - TZ=Asia/Ho_Chi_Minh
@@ -61,7 +61,7 @@ services:
     ports:
       - "8761:8761"
     networks:
-      - hday-network
+      - dhay-network
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8761/actuator/health || exit 1"]
       interval: 10s
@@ -71,11 +71,10 @@ services:
   # --- API GATEWAY (Cửa ngõ chính) ---
   dhay-gateway:
     build: ./dhay-gateway
-    container_name: hday-gateway
+    container_name: dhay-gateway
     restart: on-failure
     depends_on:
-      discovery-server:
-        condition: service_healthy
+      discovery-server: { condition: service_healthy }
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SERVER_PORT=8080
@@ -83,60 +82,64 @@ services:
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
       - INTERNAL_GATEWAY_KEY=dhay_secret_2026
     ports:
-      - "8000:8080" # User gọi vào cổng 8000
+      - "8000:8080"
     networks:
-      - hday-network
+      - dhay-network
 
   # --- CORE SERVICE (Logic chính) ---
   dhay-core-service:
     build: ./core-service
-    container_name: hday-core-app
+    container_name: dhay-core-app
     restart: on-failure
     depends_on:
       db-core: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       discovery-server: { condition: service_healthy }
+
+    stop_grace_period: 10s
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - SPRING_APPLICATION_NAME=dhay-core-service
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
-      - SPRING_DATASOURCE_USERNAME=user_hday
-      - SPRING_DATASOURCE_PASSWORD=password_hday
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/dhay_core_db
+      - SPRING_DATASOURCE_USERNAME=user_dhay
+      - SPRING_DATASOURCE_PASSWORD=password_dhay
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_RABBITMQ_HOST=rabbitmq
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
-      - INTERNAL_GATEWAY_KEY=dhay_secret_2026
+      - APP_INTERNAL_API_KEY=dhay_secret_2026 
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
     networks:
-      - hday-network
+      - dhay-network
 
   # --- AI MATCHING SERVICE ---
   ai-matching:
     build: ./ai-matching-service
-    container_name: hday-ai-service
+    container_name: dhay-ai-service
     restart: always
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/hday_ai_db
+      - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/dhay_ai_db
+      - EUREKA_SERVER=http://discovery-server:8761/eureka/apps/
+      - SERVICE_NAME=ai-matching-service
     networks:
-      - hday-network
-    command: python matching_service.py
+      - dhay-network
+    command: python main.py
 
   # --- PGADMIN (Công cụ quản lý DB) ---
   pgadmin:
     image: dpage/pgadmin4
-    container_name: hday-pgadmin
+    container_name: dhay-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "8888:80"
     networks:
-      - hday-network
+      - dhay-network
 
 networks:
-  hday-network:
-    name: hday-shared-net
+  dhay-network:
+    name: dhay-shared-net
     driver: bridge
 
 volumes:
