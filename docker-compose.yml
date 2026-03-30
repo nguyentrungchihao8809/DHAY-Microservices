@@ -19,6 +19,48 @@ services:
       timeout: 5s
       retries: 5
 
+  db-ai:
+    image: postgis/postgis:15-3.3
+    container_name: dhay-db-ai
+    restart: always
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      POSTGRES_DB: dhay_ai_db
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: ai_password
+    ports:
+      - "5433:5432"
+    networks:
+      - dhay-network
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_user -d dhay_ai_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-payment:
+    image: postgres:16-alpine # Payment không cần PostGIS, Postgres nhẹ là đủ
+    container_name: dhay-db-payment
+    restart: always
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      POSTGRES_DB: dhay_payment_db
+      POSTGRES_USER: user_dhay
+      POSTGRES_PASSWORD: password_dhay
+    ports:
+      - "5434:5432" # Ánh xạ ra ngoài máy thật port 5434
+    networks:
+      - dhay-network
+    volumes:
+      - postgres_payment_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "dhay_payment_db", "-U", "user_dhay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # --- REDIS ---
   redis:
     image: redis:alpine
@@ -124,6 +166,88 @@ services:
     networks:
       - dhay-network
     command: python main.py
+
+
+  notification-service:
+    build: ./notification-service
+    container_name: dhay-notification
+    restart: on-failure
+    depends_on:
+      db-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      # Kết nối Eureka (Quan trọng để các service thấy nhau)
+      - EUREKA_SERVER_URL=http://discovery-server:8761/eureka/
+
+      # Database: Sửa lại user/pass/db theo đúng db-core của hệ thống
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
+      - SPRING_DATASOURCE_USERNAME=user_dhay
+      - SPRING_DATASOURCE_PASSWORD=password_dhay
+
+      # Redis & RabbitMQ
+      - REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+
+      # Đường dẫn file Firebase trong container
+      - FIREBASE_CONFIG_PATH=/app/secrets/serviceAccountKey.json
+    volumes:
+      # Mount file key từ máy thật vào đúng vị trí Dockerfile cần
+      - ./notification-service/src/main/resources/serviceAccountKey.json:/app/secrets/serviceAccountKey.json
+    networks:
+      - dhay-network
+
+  payment-service:
+    build: ./payment-service
+    container_name: dhay-payment-app
+    restart: on-failure
+    depends_on:
+      db-payment: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      dhay-core-service: { condition: service_started }
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - SERVER_PORT=8084
+      - SPRING_APPLICATION_NAME=payment-service
+      # Database config
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-payment:5432/dhay_payment_db
+      - SPRING_DATASOURCE_USERNAME=user_dhay
+      - SPRING_DATASOURCE_PASSWORD=password_dhay
+      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.PostgreSQLDialect
+      
+      # Service Discovery
+      - SPRING_CLOUD_DISCOVERY_ENABLED=true
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=payment-service
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=true
+      - EUREKA_CLIENT_FETCH_REGISTRY=true
+      
+      # Kết nối nội bộ (Dùng tên service thay vì localhost)
+      - APP_SERVICES_CORE_URL=http://dhay-core-service:8080
+      - APP_INTERNAL_API_KEY=dhay_secret_2026
+      
+      # RabbitMQ
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      
+      # VNPay Config
+      - APP_PAYMENT_VNPAY_TMN_CODE=2QXUI4J4
+      - APP_PAYMENT_VNPAY_SECRET_KEY=99999999999999999999999999999999
+      - APP_PAYMENT_VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+      # Trỏ về Gateway để đồng bộ logic bảo mật
+      - APP_PAYMENT_VNPAY_RETURN_URL=http://localhost:8000/api/v1/payments/vnpay-callback
+    ports:
+      - "8084:8084"
+    networks:
+      - dhay-network
+
 
   # --- PGADMIN (Công cụ quản lý DB) ---
   pgadmin:

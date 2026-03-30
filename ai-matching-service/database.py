@@ -1,7 +1,7 @@
 import os
 import time
 from sqlalchemy import create_engine, Column, BigInteger, String, DateTime, Integer, text
-from sqlalchemy.orm import declarative_base, sessionmaker # Sửa chỗ này
+from sqlalchemy.orm import declarative_base, sessionmaker
 from geoalchemy2 import Geometry
 from dotenv import load_dotenv
 

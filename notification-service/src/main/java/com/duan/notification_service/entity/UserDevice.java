@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "user_devices") // Phải khớp tên bảng
+@Table(name = "user_devices")
 @Getter
 @Setter
 @Builder
@@ -20,14 +20,18 @@ public class UserDevice {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    // QUAN TRỌNG: Core dùng fcmToken -> DB tạo cột fcm_token
-    // Chúng ta dùng name = "fcm_token" để ánh xạ đúng vào cột đó
+    // Map chính xác với cột fcm_token trong DB dùng chung
     @Column(name = "fcm_token", nullable = false, length = 500)
-    private String deviceToken; 
+    private String deviceToken;
 
     @Column(name = "device_type")
-    private String deviceType;
+    private String deviceType; // "android", "ios", "web"
 
     @Column(name = "last_used_at")
     private LocalDateTime lastActive;
+
+    @PrePersist
+    protected void onCreate() {
+        lastActive = LocalDateTime.now();
+    }
 }
