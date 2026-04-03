@@ -20,21 +20,32 @@ public class CloudHeaderFilter extends OncePerRequestFilter {
     @Value("${app.internal.api-key}")
     private String internalApiKey;
 
-   @Override
+  @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) 
             throws ServletException, IOException {
 
-        // THAY ĐỔI TẠI ĐÂY: Thử đọc cả 2 tên Header phổ biến
+        String path = request.getRequestURI();
+
+        // --- BƯỚC 1: LOẠI TRỪ SWAGGER ---
+        // Nếu request là lấy tài liệu API, cho qua luôn không check Key
+        if (path.contains("/v3/api-docs") || 
+            path.contains("/swagger-ui") || 
+            path.contains("/webjars")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // --- BƯỚC 2: CHECK KEY (Logic cũ của bạn) ---
         String gatewayKey = request.getHeader("X-Internal-Key");
         
-        // Giữ nguyên log để kiểm tra
+        // Log để debug
+        System.err.println("===> PATH: " + path);
         System.err.println("===> CORE NHẬN KEY: [" + gatewayKey + "]");
-        System.err.println("===> CONFIG KEY HIỆN TẠI: [" + internalApiKey + "]");
 
         if (gatewayKey == null || !gatewayKey.equals(internalApiKey)) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\": \"Giao tiep noi bo bi tu choi!\"}");
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"error\": \"Giao tiep noi bo bi tu choi! Path: " + path + "\"}");
             return; 
         }
 

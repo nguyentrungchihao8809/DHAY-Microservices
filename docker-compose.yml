@@ -123,6 +123,18 @@ services:
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
       - INTERNAL_GATEWAY_KEY=dhay_secret_2026
+
+      # THÊM DÒNG NÀY: Cấu hình menu chọn Service trong Swagger UI
+      - SPRINGDOC_SWAGGER_UI_URLS_0_NAME=Core-Service
+      - SPRINGDOC_SWAGGER_UI_URLS_0_URL=/dhay-core-service/v3/api-docs
+      - SPRINGDOC_SWAGGER_UI_URLS_1_NAME=Payment-Service
+      - SPRINGDOC_SWAGGER_UI_URLS_1_URL=/payment-service/v3/api-docs
+      - SPRINGDOC_SWAGGER_UI_URLS_2_NAME=Notification-Service
+      - SPRINGDOC_SWAGGER_UI_URLS_2_URL=/notification-service/v3/api-docs
+
+      - SPRINGDOC_SWAGGER_UI_ENABLED=true
+      - SPRINGDOC_API_DOCS_ENABLED=true
+      - SPRINGDOC_SWAGGER_UI_CONFIG_URL=/v3/api-docs/swagger-config
     ports:
       - "8000:8080"
     networks:
@@ -150,6 +162,9 @@ services:
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://discovery-server:8761/eureka/
       - APP_INTERNAL_API_KEY=dhay_secret_2026 
       - JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+
+      - SPRINGDOC_API_DOCS_PATH=/v3/api-docs
+      - SPRINGDOC_SWAGGER_UI_PATH=/swagger-ui.html
     networks:
       - dhay-network
 
@@ -185,7 +200,7 @@ services:
       - EUREKA_SERVER_URL=http://discovery-server:8761/eureka/
 
       # Database: Sửa lại user/pass/db theo đúng db-core của hệ thống
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/hday_core_db
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-core:5432/dhay_core_db
       - SPRING_DATASOURCE_USERNAME=user_dhay
       - SPRING_DATASOURCE_PASSWORD=password_dhay
 
@@ -243,6 +258,8 @@ services:
       - APP_PAYMENT_VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
       # Trỏ về Gateway để đồng bộ logic bảo mật
       - APP_PAYMENT_VNPAY_RETURN_URL=http://localhost:8000/api/v1/payments/vnpay-callback
+
+      - SPRINGDOC_API_DOCS_PATH=/v3/api-docs
     ports:
       - "8084:8084"
     networks:
