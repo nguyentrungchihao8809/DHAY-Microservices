@@ -171,8 +171,14 @@ services:
   # --- AI MATCHING SERVICE ---
   ai-matching:
     build: ./ai-matching-service
-    container_name: dhay-ai-service
+    container_name: ai-matching
     restart: always
+    ports:
+      - "50051:50051" # Mở port gRPC ra mạng nội bộ
+      - "8002:8000"
+    depends_on:
+      db-ai:
+        condition: service_healthy
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://ai_user:ai_password@db-ai:5432/dhay_ai_db

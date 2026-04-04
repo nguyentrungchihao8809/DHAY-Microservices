@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from sqlalchemy import create_engine, Column, BigInteger, String, DateTime, Integer, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from geoalchemy2 import Geometry
@@ -7,14 +8,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@localhost:5432/dhay_ai_db")
+# Ưu tiên lấy từ biến môi trường của Docker Compose (db-ai:5432)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ai_user:ai_password@db-ai:5432/dhay_ai_db")
 
-# Tạo engine
-engine = create_engine(DATABASE_URL)
+# Tạo engine với cấu hình pool tốt hơn cho service AI
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- MODEL GIỮ NGUYÊN ---
+# --- MODELS ---
 class PassengerRequestAI(Base):
     __tablename__ = "passenger_requests_ai"
     request_id = Column(BigInteger, primary_key=True)
@@ -33,21 +35,21 @@ class DriverTripAI(Base):
     route_geom = Column(Geometry('LINESTRING', srid=4326))
 
 def init_db():
-    # Thử kết nối lại vài lần nếu DB chưa sẵn sàng (chờ Docker DB khởi động)
-    retries = 5
+    retries = 10
     while retries > 0:
         try:
+            # Bước 1: Tạo Extension (phải commit và đóng kết nối này trước)
             with engine.connect() as conn:
-                # Bắt buộc có dòng này để dùng được POINT và LINESTRING
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
                 conn.commit()
+            
+            # Bước 2: Tạo bảng (Dùng một kết nối mới từ metadata)
             Base.metadata.create_all(bind=engine)
-            print("Database AI đã được khởi tạo thành công!")
-            break
+            print(">>> Database AI: Khởi tạo bảng thành công!")
+            return 
         except Exception as e:
-            print(f"Đang chờ Database... ({retries})")
+            print(f">>> Đang chờ DB... Lỗi: {e}")
             retries -= 1
             time.sleep(5)
-
-if __name__ == "__main__":
-    init_db()
+            
+    raise Exception("Không thể kết nối đến Database AI sau nhiều lần thử.")
