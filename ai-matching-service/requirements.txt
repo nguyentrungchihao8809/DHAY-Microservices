@@ -1,14 +1,24 @@
+# --- CORE & DB ---
 grpcio==1.60.0
 grpcio-tools==1.60.0
 grpcio-status==1.60.0
 protobuf==4.25.3
 psycopg2-binary
-shapely
-numpy
-polyline
-fastapi
-uvicorn
-requests
 sqlalchemy
-geoalchemy2
+geoalchemy2==0.14.7
+shapely==2.0.2
+numpy<2.0.0
+polyline==2.0.1
 python-dotenv
+
+# --- WEB SERVER ---
+fastapi>=0.100.0
+uvicorn>=0.22.0
+requests>=2.31.0
+
+# --- AI AGENT (Khóa phiên bản để tránh lỗi resolution) ---
+langchain-google-genai>=1.0.0
+langgraph>=0.2.0
+langchain-community>=0.2.0
+chromadb>=0.4.0
+pydantic>=2.0.0

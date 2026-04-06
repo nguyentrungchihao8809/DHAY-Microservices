@@ -173,6 +173,8 @@ services:
     build: ./ai-matching-service
     container_name: ai-matching
     restart: always
+    env_file:
+      - ./ai-matching-service/.env
     ports:
       - "50051:50051" # Mở port gRPC ra mạng nội bộ
       - "8002:8000"

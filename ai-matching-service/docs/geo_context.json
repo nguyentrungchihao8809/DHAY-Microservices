@@ -1,0 +1,14 @@
+[
+  {
+    "zone": "District 1, HCMC",
+    "traffic_factor": 1.5,
+    "peak_hours": "16:30-19:00",
+    "note": "Khu vực mật độ cao, ưu tiên các điểm đón tại mặt đường lớn."
+  },
+  {
+    "zone": "Tan Son Nhat Airport",
+    "traffic_factor": 1.2,
+    "peak_hours": "08:00-20:00",
+    "note": "Phí ra vào sân bay 10.000đ, Agent cần nhắc tài xế."
+  }
+]
