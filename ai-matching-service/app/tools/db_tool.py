@@ -47,3 +47,26 @@ def find_nearby_passengers(trip_id: int, buffer_meters: int = 1500):
         return []
     finally:
         db.close()
+
+def get_trip_geometry(trip_id: int):
+    """Lấy tọa độ điểm đầu, điểm cuối và toàn bộ lộ trình gốc của tài xế"""
+    db = SessionLocal()
+    try:
+        query = text("""
+            SELECT 
+                ST_AsText(ST_StartPoint(route_geom)) as start_pt,
+                ST_AsText(ST_EndPoint(route_geom)) as end_pt,
+                ST_Length(route_geom::geography) as length_meters
+            FROM driver_trips_ai 
+            WHERE trip_id = :trip_id
+        """)
+        result = db.execute(query, {"trip_id": trip_id}).fetchone()
+        if result:
+            return {
+                "start_point": result.start_pt,
+                "end_point": result.end_pt,
+                "length_km": round(result.length_meters / 1000, 2)
+            }
+        return None
+    finally:
+        db.close()

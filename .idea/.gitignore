@@ -4,3 +4,6 @@
 # Ignored default folder with query files
 /queries/
 serviceAccountKey.json
+.env
+__pycache__/
+chroma_db/

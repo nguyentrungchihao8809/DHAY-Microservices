@@ -1,151 +1,126 @@
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_google_genai import HarmCategory, HarmBlockThreshold
-from app.core.config import settings
-from app.agents.prompts import SYSTEM_PROMPT
-from app.agents.state import AgentState
-from app.tools.osrm_tool import osrm_tool
-from app.tools.db_tool import find_nearby_passengers
+from pydantic import BaseModel, Field
+from typing import Optional, List
 import json
 import re
 
-# Khởi tạo LLM
+from app.core.config import settings
+from app.agents.prompts import SYSTEM_PROMPT
+from app.agents.state import AgentState
+from app.tools.osrm_tool import OSRMTool
+from app.tools.db_tool import find_nearby_passengers, get_trip_geometry
+
+# 1. Khởi tạo Tools và LLM
+osrm_tool = OSRMTool()
 llm = ChatGoogleGenerativeAI(
     model=settings.MODEL_NAME,
     google_api_key=settings.GEMINI_API_KEY,
-    temperature=0.0,
-    max_tokens=2048,
-    safety_settings={
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    },
+    temperature=0.0
 )
 
-# ==================== CÁC HÀM BỔ TRỢ ====================
+# 2. Định nghĩa Structured Output Schema (Sửa lỗi Unsupported schema type)
+class MatchingDecision(BaseModel):
+    is_match: bool = Field(description="Quyết định cuối cùng: Có ghép chuyến hay không")
+    match_score: float = Field(description="Điểm số phù hợp từ 0.0 đến 1.0 dựa trên SOP")
+    reasoning: str = Field(description="Giải thích lý do chi tiết bằng tiếng Việt")
+    candidate_id: Optional[int] = Field(None, description="ID của khách hàng được chọn (nếu có)")
 
+# Hàm bổ trợ parse tọa độ từ WKT PostGIS
 def parse_wkt_point(wkt_str):
-    """Trích xuất [lng, lat] từ chuỗi 'POINT(lng lat)' của PostGIS"""
     if not wkt_str: return None
-    try:
-        coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt_str)
-        return [float(coords[0]), float(coords[1])] if len(coords) >= 2 else None
-    except Exception:
-        return None
+    coords = re.findall(r"[-+]?\d*\.\d+|\d+", wkt_str)
+    return [float(coords[0]), float(coords[1])] if len(coords) >= 2 else None
 
-# ==================== CÁC NODE ====================
+# --- CÁC NODES ---
 
 def retrieve_candidates_node(state: AgentState):
-    """Node 1: Tìm khách hàng tiềm năng gần lộ trình từ PostGIS"""
-    print("🔎 [DEBUG] Node: retrieve_candidates")
-    
-    # Mặc định tìm trong bán kính 1500m
-    candidates = find_nearby_passengers(
-        trip_id=state.get("trip_id"), 
-        buffer_meters=1500
-    )
-    
+    """Tầng 1: Truy vấn PostGIS để lọc hành khách trong hành lang di chuyển (1.5km)"""
+    print("🔎 [Node] retrieve_candidates: Đang tìm khách hàng tiềm năng...")
+    candidates = find_nearby_passengers(state.get("trip_id"), buffer_meters=1500)
     return {"candidates": candidates}
 
-
 def calculate_metrics_node(state: AgentState):
-    """Node 2: Tính toán quãng đường lệch (Detour) và thời gian thực tế qua OSRM"""
-    print("🚗 [DEBUG] Node: calculate_metrics")
+    """Tầng 2: Gọi OSRM tính toán quãng đường lệch (Detour) thực tế"""
+    print("📍 [Node] calculate_metrics: Đang tính toán OSRM...")
+    trip_id = state["trip_id"]
     candidates = state.get("candidates", [])
-    metrics_list = []
+    driver_info = get_trip_geometry(trip_id)
+    
+    if not driver_info or not candidates:
+        return {"routing_data": []}
 
-    # Giả định tọa độ hiện tại của tài xế (Thực tế nên lấy từ database d.route_geom)
-    # Ở đây dùng tọa độ demo trung tâm TP.HCM
-    driver_loc = [106.66017, 10.762622] 
+    driver_start = parse_wkt_point(driver_info['start_point'])
+    driver_end = parse_wkt_point(driver_info['end_point'])
+    baseline_km = driver_info['length_km']
 
+    routing_results = []
     for can in candidates:
-        pickup_loc = parse_wkt_point(can.get('pickup_point'))
-        # Tọa độ điểm đến của khách (Demo)
-        dropoff_loc = [106.7017, 10.7726] 
-
-        if pickup_loc:
-            metrics = osrm_tool.get_match_metrics(
-                driver_loc=driver_loc,
-                pickup_loc=pickup_loc,
-                dropoff_loc=dropoff_loc
-            )
-            if metrics:
-                metrics['candidate_id'] = can['id']
-                metrics_list.append(metrics)
-
-    return {"routing_data": metrics_list}
-
-
-def retrieve_policies_node(state: AgentState):
-    """Node 3: Truy xuất 'Luật chơi' (SOP) từ Vector DB (RAG)"""
-    print("📚 [DEBUG] Node: retrieve_policies")
+        pickup_loc = parse_wkt_point(can['pickup_point'])
+        # Tính route: Điểm đầu tài xế -> Điểm đón khách -> Điểm cuối tài xế
+        metrics = osrm_tool.get_match_metrics(driver_start, pickup_loc, driver_end)
+        
+        if metrics:
+            detour_km = max(0, metrics['total_dist_km'] - baseline_km)
+            routing_results.append({
+                "candidate_id": can['id'],
+                "passenger_name": can.get('name'),
+                "detour_km": round(detour_km, 2),
+                "detour_percent": round((detour_km/baseline_km)*100, 2) if baseline_km > 0 else 0,
+                "wait_time": 5 # Giả định, có thể update từ ETA thực tế
+            })
     
-    from app.tools.retriever_tool import get_policy_tool
-    
-    query = f"Quy định ghép chuyến, giới hạn detour và thời gian chờ cho trip {state.get('trip_id')}"
-    policies = get_policy_tool(query)
-    
-    return {"relevant_policies": policies}
-
+    return {"routing_data": routing_results}
 
 def reasoning_node(state: AgentState):
-    """Node 4: Agent suy luận dựa trên tất cả dữ liệu đã thu thập"""
-    print("🧠 [DEBUG] Node: reasoning")
+    """Tầng 3: AI Reasoning ra quyết định dựa trên dữ liệu thực tế và SOP"""
+    print("🧠 [Node] reasoning: Gemini đang phân tích...")
+    
+    # Ép kiểu output theo Pydantic Model
+    structured_llm = llm.with_structured_output(MatchingDecision)
+    
+    input_context = {
+        "trip_id": state["trip_id"],
+        "routing_metrics": state.get("routing_data", []),
+        "business_rules": "Ưu tiên: Detour < 5km và Detour% < 25%. Thời gian chờ < 10 phút."
+    }
+
+    messages = [
+        ("system", SYSTEM_PROMPT),
+        ("user", f"Dữ liệu thực tế cần xử lý: {json.dumps(input_context, ensure_ascii=False)}")
+    ]
     
     try:
-        # Tổng hợp dữ liệu đầu vào cho bộ não AI
-        context = f"""
-### 1. LUẬT KINH DOANH (SOP):
-{state.get('relevant_policies', 'N/A')}
-
-### 2. DANH SÁCH ỨNG VIÊN (POSTGIS):
-{json.dumps(state.get('candidates', []), ensure_ascii=False, indent=2)}
-
-### 3. THÔNG SỐ THỰC TẾ (OSRM):
-{json.dumps(state.get('routing_data', []), ensure_ascii=False, indent=2)}
-"""
-
-        messages = [
-            ("system", SYSTEM_PROMPT),
-            ("user", f"""
-Hãy phân tích dữ liệu và đưa ra quyết định ghép chuyến tốt nhất cho Trip ID: {state.get('trip_id')}.
-Nếu không có ứng viên nào thỏa mãn SOP, hãy trả về is_match: false.
-
-DỮ LIỆU ĐẦU VÀO:
-{context}
-""")
-        ]
-
-        response = llm.invoke(messages)
-        print("✅ [DEBUG] Agent đã đưa ra quyết định.")
-
-        return {"final_decision": response.content}
-
+        # Gọi Gemini và nhận thẳng Object MatchingDecision
+        decision = structured_llm.invoke(messages)
+        
+        # Trả về dictionary để LangGraph lưu vào State
+        return {"final_decision": decision.model_dump()}
+        
     except Exception as e:
-        print(f"❌ Reasoning error: {e}")
-        return {"final_decision": json.dumps({"is_match": False, "reasoning": f"Lỗi hệ thống: {str(e)}"}, ensure_ascii=False)}
+        print(f"❌ Reasoning Error: {e}")
+        return {
+            "final_decision": {
+                "is_match": False, 
+                "reasoning": f"Lỗi xử lý logic LLM: {str(e)}",
+                "match_score": 0.0
+            }
+        }
 
-
-# ==================== XÂY DỰNG LUỒNG (GRAPH) ====================
-
+# --- XÂY DỰNG GRAPH ---
 workflow = StateGraph(AgentState)
 
-# Thêm các Node vào hệ thống
+# Thêm các Node vào quy trình
 workflow.add_node("retrieve_candidates", retrieve_candidates_node)
 workflow.add_node("calculate_metrics", calculate_metrics_node)
-workflow.add_node("retrieve_policies", retrieve_policies_node)
 workflow.add_node("reasoning", reasoning_node)
 
-# Thiết lập trình tự chạy (Edges)
+# Thiết lập luồng (Edge)
+# Đi từ Lọc thô -> Tính toán thực tế -> LLM quyết định
 workflow.set_entry_point("retrieve_candidates")
-
 workflow.add_edge("retrieve_candidates", "calculate_metrics")
-workflow.add_edge("calculate_metrics", "retrieve_policies")
-workflow.add_edge("retrieve_policies", "reasoning")
+workflow.add_edge("calculate_metrics", "reasoning")
 workflow.add_edge("reasoning", END)
 
 # Compile Agent
 matching_agent = workflow.compile()
-
-print("✅ AI Matching Agent Graph compiled successfully with 4 nodes!")

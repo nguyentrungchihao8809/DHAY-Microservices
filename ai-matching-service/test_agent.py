@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time  # 1. Thêm thư viện time
 from app.agents.graph import matching_agent
 from app.tools.retriever_tool import ingest_docs
 
@@ -8,16 +9,13 @@ def format_json_output(data):
     if isinstance(data, dict):
         return json.dumps(data, indent=2, ensure_ascii=False)
     
-    # Nếu AI trả về chuỗi kèm markdown (vd: ```json ... ```)
     if isinstance(data, str):
         try:
-            # Tìm kiếm khối json trong markdown
             clean_json = data.replace('```json', '').replace('```', '').strip()
-            # Thử parse để đảm bảo nó là JSON hợp lệ
             parsed = json.loads(clean_json)
             return json.dumps(parsed, indent=2, ensure_ascii=False)
         except:
-            return data # Trả về text thường nếu không parse được
+            return data
     return str(data)
 
 async def run_test():
@@ -30,11 +28,10 @@ async def run_test():
         ingest_docs()
         print("✅ SOP đã sẵn sàng trong ChromaDB.")
     except Exception as e:
-        print(f"⚠️ Cảnh báo nạp SOP: {e} (Có thể dữ liệu đã tồn tại)")
+        print(f"⚠️ Cảnh báo nạp SOP: {e}")
     
-    # Khởi tạo state đầu vào
     inputs = {
-        "trip_id": 123,
+        "trip_id": 2001,
         "candidates": [],
         "relevant_policies": "",
         "routing_data": [],
@@ -44,15 +41,16 @@ async def run_test():
     print("\n[2/3] 🧠 Agent đang thực hiện quy trình suy luận...")
     print("-" * 30)
     
-    # Chạy và theo dõi từng Node
+    # 2. Đánh dấu thời gian bắt đầu
+    start_time = time.perf_counter() 
+    
     final_state = inputs
     async for output in matching_agent.astream(inputs):
         for key, value in output.items():
+            # Tính thời gian riêng cho từng Node (Optional)
             print(f"📍 Node: {key}")
-            # Cập nhật state để theo dõi data chảy qua các node
             final_state.update(value)
             
-            # Log nhanh kết quả từng bước
             if key == "retrieve_candidates":
                 print(f"   ∟ Tìm thấy {len(value.get('candidates', []))} ứng viên tiềm năng.")
             elif key == "calculate_metrics":
@@ -62,18 +60,23 @@ async def run_test():
             elif key == "reasoning":
                 print(f"   ∟ Gemini đã hoàn tất suy luận.")
     
+    # 3. Đánh dấu thời gian kết thúc
+    end_time = time.perf_counter()
+    total_latency = end_time - start_time
+
     print("-" * 30)
+    print(f"⏱️  TỔNG THỜI GIAN XỬ LÝ: {total_latency:.2f} giây") # Hiển thị 2 chữ số thập phân
+    
     print("\n[3/3] 🏁 KẾT QUẢ CUỐI CÙNG:")
     print("=" * 60)
     
     decision = final_state.get("final_decision")
     
     if decision:
-        # Làm đẹp và in kết quả
         formatted_decision = format_json_output(decision)
         print(formatted_decision)
     else:
-        print("❌ Agent không đưa ra được quyết định. Kiểm tra lại log của Node reasoning.")
+        print("❌ Agent không đưa ra được quyết định.")
     
     print("=" * 60 + "\n")
 
