@@ -28,7 +28,7 @@
 **Cài Đặt**
 
 **Yêu Cầu Hệ Thống**
-- Hệ thống chịu tải dưới 10000 user
+- Hệ thống chịu tải dưới 1000 user
 
 **Các Bước Cài Đặt**
 - khởi đông docker với lệnh docker-compose up -d --build
